@@ -20,11 +20,10 @@ We have already offer some tests in `edu.nju.pasalab.test` to test the API in th
 	 --class edu.nju.pasalab.test.MatrixMultiply
 	 --master <master-url> \
 	 --executor-memory <memory> \
-	 --driver-class-path saury-assembly-1.0-SNAPSHOT.jar \
-	 saury-assembly-1.0-SNAPSHOT.jar \
+	 saury-assembly-0.1-SNAPSHOT.jar \
 	 <input file path A> <input file path B> <output file path> <block num>
 
-**Note:** Here we add a configuration `--driver-class-path` , this is because the pre-built Spark-assembly jar doesn't have any files about netlib-java native compontent, which means you cannot load the native linear algebra library（e.g BLAS）, and have to use java to perform the small split-matrix multiply in every worker. We have do some experiments and find this has a significant performance difference, here you can find more info about the [performance comparison](https://github.com/PasaLab/saury/wiki/Performance-comparison-on-matrices-multiply) and [how to load native library](https://github.com/PasaLab/saury/wiki/How-to-load-native-linear-algebra-library).
+**Note:** Because the pre-built Spark-assembly jar doesn't have any files about netlib-java native compontent, which means you cannot load the native linear algebra library（e.g BLAS）, and have to use java to perform the small split-matrix multiply in every worker. We have do some experiments and find this has a significant performance difference, here you can find more info about the [performance comparison](https://github.com/PasaLab/saury/wiki/Performance-comparison-on-matrices-multiply) and [how to load native library](https://github.com/PasaLab/saury/wiki/How-to-load-native-linear-algebra-library).
 
 **Note:**`<input file path A>` is the file path contains the text-file format matrix. We recommand you put it in the hdfs, and in directory `data` we offer two matrix files, in which every row of matrix likes: `7:1,2,5,2.0,3.19,0,...` the `7` before `:` means this is the 8th row of this matrix, and the numbers after `:` splited by `,` means every element in the row.
 

@@ -165,7 +165,7 @@ class IndexMatrix(
 
     val num = iterations.toInt
 
-    val lowerMat = new IndexMatrix( this.rows.map( t => new IndexRow(t.index , Vectors.sparse(t.vector.size , Seq()))) )
+    var lowerMat = new IndexMatrix( this.rows.map( t => new IndexRow(t.index , Vectors.sparse(t.vector.size , Seq()))) )
 
     for (i <- 0 until num) {
      val vector = matr.rows.filter(t => t.index.toInt == i).map(t => t.vector).first()
