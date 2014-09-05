@@ -18,7 +18,6 @@
 package edu.nju.pasalab.sparkmatrix
 
 /**
- * Created by PASAlab@NJU on 14-7-11.
  * Notice: some code is copy from mllib to make it compatible, and we change some of them
  */
 

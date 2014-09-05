@@ -4,7 +4,8 @@ import edu.nju.pasalab.sparkmatrix.{MTUtils, IndexMatrix}
 import org.apache.spark.{SparkContext, SparkConf}
 
 /**
- * Created by hadoop on 8/10/14.
+ * Test method matrixToArray in [[edu.nju.pasalab.sparkmatrix.MTUtils]]
+ * Only in spark-shell, you can see the print result, in next step, we are moving this Object using [[org.scalatest.FunSuite]]
  */
 object TestInit {
   def main(args: Array[String]) {

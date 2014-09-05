@@ -4,7 +4,8 @@ import edu.nju.pasalab.sparkmatrix.{MTUtils, IndexMatrix, IndexRow, Vectors}
 import org.apache.spark.{SparkContext, SparkConf}
 
 /**
- * Created by hadoop on 8/29/14.
+ * Test LU decompose method, this method is still to be updated
+ * Only in spark-shell, you can see the print result, in next step, we are moving this Object using [[org.scalatest.FunSuite]]
  */
 object TestLUdec {
   def main(args: Array[String]) {

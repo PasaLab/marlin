@@ -5,17 +5,12 @@ import org.apache.log4j.Logger
 import org.apache.spark.{SparkContext, SparkConf}
 
 /**
- * Created by PASAlab@NJU on 8/1/14.
+ * Test get sub matrix by row or column
+ * Only in spark-shell, you can see the print result, in next step, we are moving this Object using [[org.scalatest.FunSuite]]
  */
 object TestMatrixSlice {
-  /**
-   * Author:Yabby
-   */
+
    def main (args: Array[String]) {
-//    val log = Logger.getLogger("TestMatrixSlice")
-//    log.info("***********************************")
-//    log.info("start TestMatrixSlice")
-//    log.info("***********************************")
      val conf = new SparkConf().setAppName("test IndexMatrix Slice Operations")
      val sc = new SparkContext(conf)
      val data = Seq(

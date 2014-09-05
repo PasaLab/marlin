@@ -20,6 +20,12 @@ resolvers += "Akka Repository" at "http://repo.akka.io/releases/"
 
 resolvers += "netlib Repository" at "http://repo1.maven.org/maven2/com/github/fommil/netlib/netlib-native_system-linux-i68/1.1/"
 
+addSbtPlugin("com.eed3si9n" % "sbt-assembly" % "0.11.2")
+
+addSbtPlugin("com.typesafe.sbteclipse" % "sbteclipse-plugin" % "2.2.0")
+
+addSbtPlugin("com.github.mpeltonen" % "sbt-idea" % "1.6.0")
+
 mergeStrategy in assembly <<= (mergeStrategy in assembly) {
   (old) => {
     case PathList("org", "apache", xs@_*) => MergeStrategy.first

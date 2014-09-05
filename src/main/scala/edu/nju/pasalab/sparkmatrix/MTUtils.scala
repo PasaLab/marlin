@@ -2,21 +2,21 @@ package edu.nju.pasalab.sparkmatrix
 
 import org.apache.spark.SparkContext
 
-
-/**
- * Created by PASAlab@NJU on 14-7-24.
- */
 object MTUtils {
 
   /**
-   * function to load matrix from file
+   * Function to load matrix from file
+   *
+   * @param sc the running SparkContext
+   * @param path the path where store the matrix
+   * @param minPartition the min num of partitions of the matrix to load in Spark
    */
-  def loadMatrixFile(sc: SparkContext, path: String, minPatition: Int = 3): IndexMatrix = {
+  def loadMatrixFile(sc: SparkContext, path: String, minPartition: Int = 3): IndexMatrix = {
     if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://") && !path.startsWith("file://")) {
       System.err.println("the path is not in local file System, HDFS or Tachyon")
       System.exit(1)
     }
-    val file = sc.textFile(path, minPatition)
+    val file = sc.textFile(path, minPartition)
     val rows = file.map(t =>{
       val e = t.split(":")
       val rowIndex = e(0).toLong
@@ -29,14 +29,18 @@ object MTUtils {
   }
 
   /**
-   * function to load matrix from a dictionary contains many files to generate a Matrix
+   * Function to load matrix from a dictionary which contains many files to generate a Matrix
+   *
+   * @param sc the running SparkContext
+   * @param path the path where store the matrix
+   * @param minPartition the min num of partitions of the matrix to load in Spark
    */
-  def loadMatrixFiles(sc: SparkContext, path: String, minPatition: Int = 3): IndexMatrix = {
+  def loadMatrixFiles(sc: SparkContext, path: String, minPartition: Int = 3): IndexMatrix = {
     if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://") && !path.startsWith("file://")) {
       System.err.println("the path is not in local file System, HDFS or Tachyon")
       System.exit(1)
     }
-    val file = sc.wholeTextFiles(path, minPatition)
+    val file = sc.wholeTextFiles(path, minPartition)
     val rows = file.map(t =>{
       val e = t._2.split(":")
       val rowIndex = e(0).toLong
@@ -48,11 +52,22 @@ object MTUtils {
     res
   }
 
+  /**
+   * Function to generate a IndexMatrix from a Array[Array[Double]
+   *
+   * @param sc the running SparkContext
+   * @param array the two dimension Double array
+   */
   def arrayToMatrix(sc:SparkContext , array: Array[Array[Double]] , para: Int = 2): IndexMatrix ={
     new IndexMatrix( sc.parallelize(array.zipWithIndex.
       map{ case(t,i)  => IndexRow(i, Vectors.dense(t)) },para) )
   }
 
+  /**
+   * Function to transform a IndexMatrix to a Array[Array[Double]
+   *
+   * @param mat the IndexMatrix to be transformed
+   */
   def matrixToArray(mat: IndexMatrix ): Array[Array[Double]] ={
     val arr = Array.ofDim[Double](mat.numRows().toInt, mat.numCols().toInt)
     mat.rows.collect().foreach( t => t.vector.toArray.copyToArray(arr(t.index.toInt)) )

@@ -3,13 +3,13 @@ package edu.nju.pasalab.sparkmatrix
 
 
 /**
- * Created by PASAlab@NJU on 14-7-29.
+ * This class overrides from [[org.apache.spark.mllib.linalg.distributed.IndexedRow]]
+ * Notice: some code in this file is copy from MLlib to make it compatible
  */
 case class IndexRow( index: Long, vector: Vector) {
 
-  //def this(index: Long, vector: Vector) =  IndexedRow(index, vector)
-
   /**
+   * Override 'toString' method to make the content in HDFS compatible
    */
   override def toString: String = {
     val result : StringBuilder = new StringBuilder(index.toString + ":")

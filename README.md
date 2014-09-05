@@ -1,94 +1,71 @@
-Saury
-============
+#  matrixlib 说明
 
-A matrix operations lib extends some contents from [MLlib](http://spark.apache.org/docs/latest/mllib-guide.html), and can be used in [Spark](http://spark.apache.org/) to handle large-scale matrices. The master branch is in version 0.1-SNAPSHOT.  
+##文件组织结构
 
-##Prerequisites
-As this project is an extension for Spark, you need to get the Spark installed first. We build and support this project on Spark 1.0.x version.
+	data - 测试数据样例
+    src  - 源代码目录
+	├─main
+	│  └─scala
+	│      └─edu
+	│          └─nju
+	│              └─yabby
+    │                 └─matrixlib     -矩阵类库文件
+    │                 └─test          -矩阵操作相关测试文件
+    │
+	└─build.sbt  -sbt编译所用依赖说明文件
+	
 
-The following show how to build and use the library.
-
-##Compile Saury
-We have offer a default `build.sbt` file, make sure you have installed [sbt](http://www.scala-sbt.org/), and you can just type `sbt assembly` to get a assembly jar.
-
-##Run Saury Test
-We have already offer some tests in `edu.nju.pasalab.test` to test the API in the project. Especially, if you want to test two large matrices multiply, use spark-submit method, and type in command
- 
-	$.bin/spark-submit \
-	 --class edu.nju.pasalab.test.TestMatrixMultiply
-	 --master <master-url> \
-	 --executor-memory <memory> \
-	 --driver-class-path saury-assembly-1.0-SNAPSHOT.jar \
-	 saury-assembly-1.0-SNAPSHOT.jar \
-	 <input file path A> <input file path B> <output file path> <block num>
-
-**Note:** Here we add a configuration `--driver-class-path` , this is because the pre-built Spark-assembly jar doesn't have any files about netlib-java native compontent, which means you cannot load the native linear algebra library（e.g BLAS）, and have to use java to perform the small split-matrix multiply in every worker. We have do some experiments and find this has a significant performance difference, here you can find more info about the [performance comparison](https://github.com/PasaLab/saury/wiki/Performance-comparison-on-matrices-multiply) and [how to load native library](https://github.com/PasaLab/saury/wiki/How-to-load-native-linear-algebra-library).
-
-**Note:**`<input file path A>` is the file path contains the text-file format matrix. We recommand you put it in the hdfs, and in directory `data` we offer two matrix files, in which every row of matrix likes: `7:1,2,5,2.0,3.19,0,...` the `7` before `:` means this is the 8th row of this matrix, and the numbers after `:` splited by `,` means every element in the row.
-
-**Note:** `<block num>` is the split nums of submatries, if you set it as `10`, which means you split every original large matrix into `10*10=100` blocks. The smaller this argument, the biger every worker get submatrix.When doing experiments, we multiply two 20000 by 20000 matrix together, we set it as 10.         
-
-##Martix Operations API in Saury
-Currently, we have finished below APIs:
-<table>
-	<tr>
-		<td><b>Operation</b></td>
-        <td><b>API</b></td>
-	</tr>
-	<tr>
-		<td>Matrix-Matrix addition</td>
-        <td>add(B: IndexMatrix)</td>
-	</tr>
-	<tr>
-		<td>Matrix-Matrix minus</td>
-        <td>minus(B: IndexMatrix)</td>
-	</tr>
-	<tr>
-		<td>Matrix-Matrix multiplication</td>
-        <td>multiply(B: IndexMatrix, blkNum: Int)</td>
-	</tr>
-	<tr>
-		<td>Elementwise addition</td>
-        <td>elemWiseAdd(b: Double)</td>
-	</tr>
-	<tr>
-		<td>Elementwise minus</td>
-        <td>elemWiseMinus(b: Double) / elemWiseMinusBy(b: Double)</td>
-	</tr>
-	<tr>
-		<td>Elementwise multiplication</td>
-        <td>elemWiseMult(b: Double)</td>
-	</tr>
-	<tr>
-		<td>Elementwise division</td>
-        <td>elemWiseDivide(b: Double) / elemWiseDivideBy(b: Double) </td>
-	</tr>
-	<tr>
-		<td>get submatrix according to row</td>
-        <td>sliceByRow(startRow: Long, endRow: Long)</td>
-	</tr>
-	<tr>
-		<td>get submatrix according to column</td>
-        <td>sliceByColumn(startCol: Int, endCol: Int)</td>
-	</tr>
-	<tr>
-		<td>get submatrix</td>
-        <td>getSubMatrix(startRow: Long, endRow: Long ,startCol: Int, endCol: Int)</td>
-	</tr>
-	<tr>
-		<td>LU decomposition</td>
-        <td>luDecompose(mode: String = "auto")</td>
-	</tr>
-</table>   
-
-##How to use Saury
-Here we mainly talks about some basic classes and object in Saury to introuduce how to use it
+## 类库简介
 
 ###IndexRow
-We override class `IndexedRow` in MLlib，it is still a `(Long, Vector)` wraper, usage is the same as `IndexedRow` .
+
+重写了mllib的类IndexedRow，还是对(Long, Vector)的封装，主要重写了toString函数，以优化保存时的格式
 
 ###IndexMatrix
-We override class `IndexedRowMatrix` in MLlib，from `RDD[IndexedRow]` to `RDD[IndexRow]`， usage is the same as `IndexedRowMatrix` .
 
-###MTUtils
-This object can load file-format matrix from hdfs and tachyon, with `loadMatrixFile(sc: SparkContext, path: String, minPatition: Int = 3)` method
+重写了mllib的类IndexedRowMatrix，从RDD[IndexedRow]修改成RDD[IndexRow]，（目前）提供了分布式矩阵的乘法的API
+
+**注意** 更多关于mllib的矩阵相关内容可以参考网页[mllib-basics](http://spark.apache.org/docs/latest/mllib-basics.html "mllib-basics about vectors and matrices" )
+
+## 使用方法
+
+### 初始化IndexMatrix
+
+使用工具类MTUtils的loadMatrixFile(SparkContext, String) 从文本文件中初始化得到分布式矩阵
+
+### 矩阵操作
+
+参照breeze的[Linear Algebra Cheat sheet](https://github.com/scalanlp/breeze/wiki/Linear-Algebra-Cheat-Sheet "Linear Algebra Cheat sheet")将陆续补充相关矩阵的操作API，目前提供：
+
+* 两个矩阵相乘 multiply(B: IndexMatrix, blkNum: Int)
+* 两个矩阵相加 add(B: IndexMatrix)
+* 两个矩阵相减 minus(B: IndexMatrix)
+* 矩阵A与标量的逐个元素相加 elemWiseAdd(b: Double)
+* 矩阵A与标量的逐个元素相减 elemWiseMinus(b: Double)
+* 矩阵A与标量的逐个元素相乘 elemWiseMult(b: Double)
+* 矩阵A与标量的逐个元素相除 elemWiseDivide(b: Double)
+* 获取矩阵给定范围行 sliceByRow(startRow: Long, endRow: Long)
+* 获取矩阵给定范围列 sliceByColumn(startCol: Int, endCol: Int)
+* 获取矩阵给定范围子矩阵 getSubMatrix(startRow: Long, endRow: Long ,startCol: Int, endCol: Int)
+
+**注意** 获取给定范围行和列时，上下界参数都是包含关系
+
+
+### 矩阵相关操作测试
+
+* 测试矩阵乘法
+
+使用类的TestMatrixMultiply测试两个矩阵的相乘，采用标准spark-submit的操作指令如下：
+
+>$ bin/spark-submit --class edu.nju.yabby.test.TestMatrixMultiply --master <master-url\> \
+   <application jar\>  <input file path A\>  <input file path B\>  <output file path\> blockNum 
+   
+**注意** 参数blockNum表示矩阵每行每列被切分的数量
+
+* 测试矩阵的逐个元素的相关操作
+
+>$ bin/spark-submit --class edu.nju.yabby.test.TestMatrixElemOP --master local <application jar\> 
+
+* 测试矩阵子矩阵获取
+
+>$ bin/spark-submit --class edu.nju.yabby.test.TestMatrixSlice --master local <application jar\> 

@@ -1,6 +1,5 @@
 package edu.nju.pasalab.sparkmatrix
 /**
- * Created by PASAlab@NJU on 14-7-30.
  * Notice: the code in this file is copy from MLlib, to make it compatible
  */
 

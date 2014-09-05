@@ -12,7 +12,7 @@ import org.apache.spark.rdd.RDD
 import scala.collection.mutable.ArrayBuffer
 
 /**
- * Created by PASAlab@NJU on 14-7-30.
+ * This class overrides from [[org.apache.spark.mllib.linalg.distributed.IndexedRowMatrix]]
  * Notice: some code in this file is copy from MLlib to make it compatible
  */
 class IndexMatrix(
@@ -60,6 +60,12 @@ class IndexMatrix(
 
   /**
    * A matrix multiply another IndexMatrix
+   *
+   * @param other another matrix in IndexMatrix format
+   * @param blkNum is the split nums of submatries, if you set it as 10,
+   *               which means you split every original large matrix into 10*10=100 blocks.
+   *               The smaller this argument, the biger every worker get submatrix.
+   *               When doing experiments, we multiply two 20000 by 20000 matrix together, we set it as 10.
    */
   final def multiply(other: IndexMatrix, blkNum: Int): IndexMatrix = {
     require(this.numCols == other.numRows, s"Dimension mismatch: ${this.numCols} vs ${other.numRows}")
@@ -82,10 +88,10 @@ class IndexMatrix(
       Logger.getLogger(this.getClass).log(Level.INFO,"to breeze time: "+ (t2-t1).toString +" ms" )
       Logger.getLogger(this.getClass).log(Level.INFO,"b1 rows: "+ b1.rows +" , b1 cols: " + b1.cols)
       Logger.getLogger(this.getClass).log(Level.INFO,"b2 rows: "+ b2.rows +" , b2 cols: " + b2.cols)
-        val result = b1 * b2
+      val result = b1 * b2
       val t3 = System.currentTimeMillis()
       Logger.getLogger(this.getClass).log(Level.INFO,"breeze multiply time: "+ (t3-t2).toString +" ms")
-        val resultMat = Matrices.fromBreeze(result)
+      val resultMat = Matrices.fromBreeze(result)
       val t4 = System.currentTimeMillis()
       Logger.getLogger(this.getClass).log(Level.INFO,"from breeze time: "+ (t4-t3).toString +" ms")
 
@@ -117,7 +123,9 @@ class IndexMatrix(
   }
 
   /**
+   * This function is still in progress !
    * LU decompose this IndexMatrix to generate a lower triangular matrix L and a upper triangular matrix U
+   *
    * @return a pair (lower triangular matrix, upper triangular matrix)
    */
   def luDecompose(mode: String = "auto"): (IndexMatrix, IndexMatrix) = {
@@ -210,7 +218,9 @@ class IndexMatrix(
 
 
   /**
-   * this matrix add another IndexMatrix
+   * This matrix add another IndexMatrix
+   *
+   * @param other another matrix in IndexMatrix format
    */
   final def add(other: IndexMatrix): IndexMatrix = {
     require(this.numRows == other.numRows, s"Dimension mismatch: ${this.numRows} vs ${other.numRows}")
@@ -224,7 +234,9 @@ class IndexMatrix(
   }
 
   /**
-   * this matrix minus another IndexMatrix
+   * This matrix minus another IndexMatrix
+   *
+   * @param other another matrix in IndexMatrix format
    */
   final def minus(other: IndexMatrix): IndexMatrix = {
     require(this.numRows == other.numRows, s"Dimension mismatch: ${this.numRows} vs ${other.numRows}")
@@ -238,15 +250,10 @@ class IndexMatrix(
   }
 
 
-   /**
-    * compute LU decomposition, currently we only focus on square matrix
-    * @return IndexMatrix L and IndexMatrix U
-   */
-
-
-
   /**
-   * element in this matrix element-wise add another scalar
+   * Element in this matrix element-wise add another scalar
+   *
+   * @param b a number in the format of double
    */
   final def elemWiseAdd(b: Double): IndexMatrix = {
     val result = this.rows.map(t =>IndexRow(t.index, Vectors.dense(t.vector.toArray.map(_ + b))))
@@ -254,7 +261,9 @@ class IndexMatrix(
   }
 
   /**
-   * element in this matrix element-wise minus another scalar
+   * Element in this matrix element-wise minus another scalar
+   *
+   * @param b a number in the format of double
    */
   final def elemWiseMinus(b: Double): IndexMatrix = {
     val result = this.rows.map(t =>IndexRow(t.index, Vectors.dense(t.vector.toArray.map(_ - b))))
@@ -262,7 +271,9 @@ class IndexMatrix(
   }
 
   /**
-   * element in this matrix element-wise minus by another scalar
+   * Element in this matrix element-wise minus by another scalar
+   *
+   * @param b a number in the format of double
    */
   final def elemWiseMinusBy(b: Double): IndexMatrix = {
     val result = this.rows.map(t =>IndexRow(t.index, Vectors.dense(t.vector.toArray.map(b - _ ))))
@@ -270,7 +281,9 @@ class IndexMatrix(
   }
 
   /**
-   * element in this matrix element-wise multiply another scalar
+   * Element in this matrix element-wise multiply another scalar
+   *
+   * @param b a number in the format of double
    */
   final def elemWiseMult(b: Double): IndexMatrix = {
     val result = this.rows.map(t =>IndexRow(t.index, Vectors.dense(t.vector.toArray.map(_ * b))))
@@ -278,7 +291,9 @@ class IndexMatrix(
   }
 
   /**
-   * element in this matrix element-wise divide another scalar
+   * Element in this matrix element-wise divide another scalar
+   *
+   * @param b a number in the format of double
    */
   final def elemWiseDivide(b: Double): IndexMatrix = {
     val result = this.rows.map(t =>IndexRow(t.index, Vectors.dense(t.vector.toArray.map( _ / b))))
@@ -286,7 +301,9 @@ class IndexMatrix(
   }
 
   /**
-   * element in this matrix element-wise divided by another scalar
+   * Element in this matrix element-wise divided by another scalar
+   *
+   * @param b a number in the format of double
    */
   final def elemWiseDivideBy(b: Double): IndexMatrix = {
     val result = this.rows.map(t =>IndexRow(t.index, Vectors.dense(t.vector.toArray.map( b / _))))
@@ -294,8 +311,10 @@ class IndexMatrix(
   }
 
   /**
-   * get sub matrix according to the given range of rows
-   * Note the startRow and the endRow is included
+   * Get sub matrix according to the given range of rows
+   *
+   * @param startRow the start row of the subMatrix, this row is included
+   * @param endRow the end row of the subMatrix, this row is included
    */
   final def sliceByRow(startRow: Long, endRow: Long): IndexMatrix = {
     require((startRow >= 0 && endRow <= this.numRows()), s"start row or end row dismatch the matrix num of rows")
@@ -304,7 +323,9 @@ class IndexMatrix(
 
   /**
    * get sub matrix according to the given range of column
-   * Note the startColumn and the endColumn is included
+   *
+   * @param startCol the start column of the subMatrix, this column is included
+   * @param endCol the end column of the subMatrix, this column is included
    */
   final def sliceByColumn(startCol: Int, endCol: Int): IndexMatrix = {
     require((startCol >= 0 && endCol <= this.numCols()),
@@ -315,7 +336,11 @@ class IndexMatrix(
 
   /**
    * get sub matrix according to the given range of column
-   * Note the startColumn and the endColumn is included
+   *
+   * @param startRow the start row of the subMatrix, this row is included
+   * @param endRow the end row of the subMatrix, this row is included
+   * @param startCol the start column of the subMatrix, this column is included
+   * @param endCol the end column of the subMatrix, this column is included
    */
   final def getSubMatrix(startRow: Long, endRow: Long ,startCol: Int, endCol: Int): IndexMatrix = {
     require((startRow >= 0 && endRow <= this.numRows()), s"start row or end row dismatch the matrix num of rows")
@@ -328,16 +353,11 @@ class IndexMatrix(
   }
 
 
-  /**
-   * generate output to the IndexedRowMatrix in [[org.apache.spark.mllib.linalg.distributed.IndexedRowMatrix]]
-   */
-//  def toIndexedRowMatrix(): IndexedRowMatrix = {
-//    new IndexedRowMatrix(this.rows
-//      .map(t=>IndexedRow(t.index, org.apache.spark.mllib.linalg.Vectors.dense(t.vector.toArray))))
-//  }
 
   /**
-   * save the result to the HDFS
+   * Save the result to the HDFS
+   *
+   * @param path the path to store the IndexMatrix in HDFS
    */
   def saveToFileSystem(path: String){
     this.rows.saveAsTextFile(path)
