@@ -1,0 +1,65 @@
+package edu.nju.pasalab.test
+
+import edu.nju.pasalab.sparkmatrix.{IndexMatrix, IndexRow, Vectors}
+import org.apache.log4j.Logger
+import org.apache.spark.{SparkContext, SparkConf}
+
+/**
+ * Created by PASAlab@NJU on 8/1/14.
+ */
+object TestMatrixElemOP {
+
+  /**
+   * Author:Yabby
+   */
+  def main (args: Array[String]) {
+    val conf = new SparkConf().setAppName("test IndexMatrix Slice Operations")
+    val sc = new SparkContext(conf)
+    val data = Seq(
+      (0L, Vectors.dense(1.0, 2.0, 3.0, 4.0, 5.0, 6.0)),
+      (1L, Vectors.dense(2.0, 2.0, 2.0, 2.0, 2.0, 2.0)),
+      (2L, Vectors.dense(3.0, 3.0, 3.0, 3.0, 3.0, 3.0)),
+      (3L, Vectors.dense(4.0, 4.0, 4.0, 4.0, 4.0, 4.0)),
+      (4L, Vectors.dense(5.0, 5.0, 5.0, 5.0, 5.0, 5.0))
+    ).map( x => IndexRow(x._1 , x._2))
+    val rows = sc.parallelize(data,2)
+    val matrixA = new IndexMatrix(rows)
+
+    val dataB = Seq(
+      (0L, Vectors.dense(6.0, 5.0, 4.0, 3.0, 2.0, 1.0)),
+      (1L, Vectors.dense(6.0, 6.0, 6.0, 6.0, 6.0, 6.0)),
+      (2L, Vectors.dense(5.0, 5.0, 5.0, 5.0, 5.0, 5.0)),
+      (3L, Vectors.dense(4.0, 4.0, 4.0, 4.0, 4.0, 4.0)),
+      (4L, Vectors.dense(3.0, 3.0, 3.0, 3.0, 3.0, 3.0))
+    ).map( x => IndexRow(x._1 , x._2))
+
+    val rowsB = sc.parallelize(dataB,2)
+    val matrixB = new IndexMatrix(rowsB)
+
+    println("\nmatrix A contents (rows and columns index both start from 0):")
+    matrixA.rows.foreach( t => println(t.toString))
+
+    println("\nmatrix A contents (rows and columns index both start from 0):")
+    matrixB.rows.foreach( t => println(t.toString))
+
+    println("\nmatrix A add matrix B:")
+    matrixA.add(matrixB).rows.foreach(t => println(t.toString) )
+
+    println("\nmatrix A minus matrix B:")
+    matrixA.minus(matrixB).rows.foreach(t => println(t.toString) )
+
+    println("\nmatrix A element-wise add 2:")
+    matrixA.elemWiseAdd(2).rows.foreach(t => println(t.toString) )
+
+    println("\nmatrix A element-wise minus 2:")
+    matrixA.elemWiseMinus(2).rows.foreach(t => println(t.toString) )
+
+    println("\nmatrix A element-wise multiply 2:")
+    matrixA.elemWiseMult(2).rows.foreach(t => println(t.toString) )
+
+    println("\nmatrix A element-wise divide 2:")
+    matrixA.elemWiseDivide(2).rows.foreach(t => println(t.toString) )
+    sc.stop()
+  }
+
+}
