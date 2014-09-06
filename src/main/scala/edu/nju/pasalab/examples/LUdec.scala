@@ -6,7 +6,7 @@ import edu.nju.pasalab.sparkmatrix.MTUtils
 
 /**
  * Test LU decompose method, this method is still to be updated
- * Only in spark-shell, you can see the print result.
+ * Only in spark-shell or local mode, you can see the print result.
  */
 object LUdec {
   def main(args: Array[String]) {
@@ -32,7 +32,7 @@ object LUdec {
 //    val result2 = mat.luDecompose()
 //    result2._1.saveToFileSystem("hdfs://master:54300/L2")
 
-    val ma = MTUtils.loadMatrixFile(sc,args(0), 10)
+    val ma = MTUtils.loadMatrixFile(sc, args(0), 10)
     println("start LU decompose")
     val result = ma.luDecompose()
     println("start save the L into file system")

@@ -6,7 +6,7 @@ import edu.nju.pasalab.sparkmatrix.{MTUtils, IndexMatrix}
 
 /**
  * Test method matrixToArray in [[edu.nju.pasalab.sparkmatrix.MTUtils]]
- * Only in spark-shell, you can see the print result
+ * Only in spark-shell or local mode, you can see the print result
  */
 object InitMatrix {
   def main(args: Array[String]) {

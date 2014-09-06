@@ -65,10 +65,13 @@ object MTUtils {
   }
 
   /**
-   * Function to transform a IndexMatrix to a Array[Array[Double]
+   * Function to transform a IndexMatrix to a Array[Array[Double]], but now we use collect method to
+   * get all the content from distributed matrices which means it is expensive, so currently only
+   * not so large matrix can transform to Array[Array[Double]]
    *
    * @param mat the IndexMatrix to be transformed
    */
+
   def matrixToArray(mat: IndexMatrix ): Array[Array[Double]] ={
     val arr = Array.ofDim[Double](mat.numRows().toInt, mat.numCols().toInt)
     mat.rows.collect().foreach( t => t.vector.toArray.copyToArray(arr(t.index.toInt)) )

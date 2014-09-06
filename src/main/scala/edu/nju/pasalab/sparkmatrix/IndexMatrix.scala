@@ -1,6 +1,5 @@
 package edu.nju.pasalab.sparkmatrix
 
-
 import java.io.IOException
 
 import scala.collection.mutable.ArrayBuffer
@@ -18,17 +17,15 @@ import org.apache.spark.rdd.RDD
  * Notice: some code in this file is copy from MLlib to make it compatible
  */
 class IndexMatrix(
-     val rows: RDD[IndexRow],
-     private var nRows: Long,
-     private var nCols: Int) extends DistributedMatrix{
-
-
+    val rows: RDD[IndexRow],
+    private var nRows: Long,
+    private var nCols: Int) extends DistributedMatrix{
 
   def this(rows: RDD[IndexRow]) = this(rows, 0L, 0)
 
-  def this(sc:SparkContext , array: Array[Array[Double]] , para: Int = 2){
+  def this(sc: SparkContext , array: Array[Array[Double]] , partitions: Int = 2){
     this( sc.parallelize(array.zipWithIndex.
-      map{ case(t,i)  => IndexRow(i, Vectors.dense(t)) },para) )
+      map{ case(t,i)  => IndexRow(i, Vectors.dense(t)) }, partitions) )
   }
 
   override def numCols(): Long = {
@@ -72,56 +69,57 @@ class IndexMatrix(
   final def multiply(other: IndexMatrix, blkNum: Int): IndexMatrix = {
     require(this.numCols == other.numRows, s"Dimension mismatch: ${this.numCols} vs ${other.numRows}")
 
-
     val mRows = this.numRows()
     val mCols = other.numCols()
     val mBlcokRowSize = math.ceil(mRows.toDouble / blkNum.toDouble).toInt
     val mBlcokColSize = math.ceil(mCols.toDouble / blkNum.toDouble).toInt
+    //generate 'collection table' from these two matrices
     val mAcollects = collectTable(this, blkNum, true)
     val mBcollects = collectTable(other, blkNum, false)
     val result = mAcollects.join(mBcollects).
-      map( t => {
-        //two matrices multiply; (new BlockID(t._1.getRow, t._1.getColumn) ,matsMultiply(t._2._1, t._2._2)))
+      map(t => {
       val t1 = System.currentTimeMillis()
       val b1 = t._2._1.toBreeze.asInstanceOf[BDM[Double]]
       val b2 = t._2._2.toBreeze.asInstanceOf[BDM[Double]]
       val t2 = System.currentTimeMillis()
 
-      Logger.getLogger(this.getClass).log(Level.INFO,"to breeze time: "+ (t2-t1).toString +" ms" )
-      Logger.getLogger(this.getClass).log(Level.INFO,"b1 rows: "+ b1.rows +" , b1 cols: " + b1.cols)
-      Logger.getLogger(this.getClass).log(Level.INFO,"b2 rows: "+ b2.rows +" , b2 cols: " + b2.cols)
+      Logger.getLogger(this.getClass).log(Level.INFO, "to breeze time: " + (t2 - t1).toString + " ms")
+      Logger.getLogger(this.getClass).log(Level.INFO, "b1 rows: " + b1.rows + " , b1 cols: " + b1.cols)
+      Logger.getLogger(this.getClass).log(Level.INFO, "b2 rows: " + b2.rows + " , b2 cols: " + b2.cols)
       val result = b1 * b2
       val t3 = System.currentTimeMillis()
-      Logger.getLogger(this.getClass).log(Level.INFO,"breeze multiply time: "+ (t3-t2).toString +" ms")
+      Logger.getLogger(this.getClass).log(Level.INFO, "breeze multiply time: " + (t3 - t2).toString + " ms")
       val resultMat = Matrices.fromBreeze(result)
       val t4 = System.currentTimeMillis()
-      Logger.getLogger(this.getClass).log(Level.INFO,"from breeze time: "+ (t4-t3).toString +" ms")
+      Logger.getLogger(this.getClass).log(Level.INFO, "from breeze time: " + (t4 - t3).toString + " ms")
 
-        (new BlockID(t._1.row, t._1.column),resultMat)
-        })
+      (new BlockID(t._1.row, t._1.column), resultMat)
+      })
       .groupByKey()
       .flatMap(t => {
-        val list = t._2.toArray
-        val smRows = list(0).numRows
-        val smCols = list(0).numCols
-        val res = Array.ofDim[Double](smRows * smCols)
-        for (elem <- list) {
-          val array = elem.toArray
-          for (i <- 0 until array.length){
-            res(i) += array(i)
-          }
+      val list = t._2.toArray
+      val smRows = list(0).numRows
+      val smCols = list(0).numCols
+      val res = Array.ofDim[Double](smRows * smCols)
+      for (elem <- list) {
+        val array = elem.toArray
+        for (i <- 0 until array.length) {
+          res(i) += array(i)
         }
-        var arrayBuf = new ArrayBuffer[(Int, Int, Double)]
-        for (i <- 0 until res.length) {
-          val b: Int = i/smRows
-          arrayBuf += ((i - b * smRows + t._1.row * mBlcokRowSize, b + t._1.column * mBlcokColSize, res(i)))
-        }
-        arrayBuf})
-      .map(t => (t._1,(t._2,t._3)))
+      }
+      var arrayBuf = new ArrayBuffer[(Int, Int, Double)]
+      for (i <- 0 until res.length) {
+        val b: Int = i / smRows
+        arrayBuf += ((i - b * smRows + t._1.row * mBlcokRowSize, b + t._1.column * mBlcokColSize, res(i)))
+      }
+      arrayBuf
+      })
+      .map(t => (t._1, (t._2, t._3)))
       .groupByKey()
-      .map( genIndexRow )
+      .map(genIndexRow)
 
-      new IndexMatrix(result)
+    new IndexMatrix(result)
+
   }
 
   /**
@@ -423,15 +421,12 @@ class IndexMatrix(
         while (itr.hasNext) {
           val vec = itr.next()
           if (vec.vector.size != smCols) {
-//            log.error("vector size: "+ input._2)
-//            log.error("Block Column Size dismatched")
             Logger.getLogger(this.getClass).log(Level.ERROR,"vectors:  "+ input._2+"Block Column Size dismatched" )
             throw new IOException("Block Column Size dismatched")
           }
 
           val rowOffset = vec.index.toInt - rowBase
           if (rowOffset >= smRows || rowOffset < 0) {
-//            log.error("Block Row Size dismatched")
             Logger.getLogger(this.getClass).log(Level.ERROR,"Block Row Size dismatched" )
             throw new IOException("Block Row Size dismatched")
           }

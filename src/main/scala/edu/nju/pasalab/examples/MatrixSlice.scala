@@ -6,7 +6,7 @@ import edu.nju.pasalab.sparkmatrix.{IndexMatrix, IndexRow, Vectors}
 
 /**
  * Test get sub matrix by row or column
- * Only in spark-shell, you can see the print result.
+ * Only in spark-shell or local mode, you can see the print result.
  */
 object MatrixSlice {
 
