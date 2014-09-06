@@ -92,11 +92,8 @@ We have done some performance evaluation of Saury. It can be seen [here](https:/
 ##The relationship between Saury and MLlib Matrix
 [MLlib](http://spark.apache.org/docs/latest/mllib-guide.html) contains quite a lot of general representations of Matrix. Saury extends some of them and provides the distributed manipulation for the matrices.
 
-###IndexRow
 We override class `IndexedRow` in [MLlib](http://spark.apache.org/docs/latest/mllib-guide.html)，it is still a `(Long, Vector)` wraper, usage is the same as `IndexedRow` .
 
-###IndexMatrix
 We override class `IndexedRowMatrix` in [MLlib](http://spark.apache.org/docs/latest/mllib-guide.html)，from `RDD[IndexedRow]` to `RDD[IndexRow]`， usage is the same as `IndexedRowMatrix` .
 
-###MTUtils
-This object can load file-format matrix from hdfs and tachyon, with `loadMatrixFile(sc: SparkContext, path: String, minPatition: Int = 3)` method
+The MTUtils can load file-format matrix from hdfs and [tachyon](http://tachyon-project.org/), with `loadMatrixFile(sc: SparkContext, path: String, minPatition: Int = 3)` method
