@@ -76,13 +76,13 @@ Currently, we have finished below APIs:
 	</tr>
 	<tr>
 		<td>LU decomposition</td>
-        <td>luDecompose(mode: String = "auto")</td>
+        <td>LUDecompose(mode: String = "auto")</td>
 	</tr>
 </table>   
 
 ##Algorithms and Performance Evaluation
 ###Algorithms
-Currently, we adopt the [block matrix manipulation algorithms](http://en.wikipedia.org/wiki/Block_matrix#Block_matrix_multiplication) to distribute large scale matrix computation among cluster. The details of the matrix multiplication algorithm is [here](https://github.com/PasaLab/saury/wiki/Matrix-multiply-algorithm).
+Currently,  we implement the matrix manipulation on Spark with [block matrix parallel algorithms](http://en.wikipedia.org/wiki/Block_matrix#Block_matrix_multiplication) to distribute large scale matrix computation among cluster nodes. The details of the matrix multiplication algorithm is [here](https://github.com/PasaLab/saury/wiki/Matrix-multiply-algorithm).
 
 ###Performance Evaluation
 We have done some performance evaluation of Saury. It can be seen [here](https://github.com/PasaLab/saury/wiki/Performance-comparison-on-matrices-multiply). We wiil update the wiki page when more results are carried out.
