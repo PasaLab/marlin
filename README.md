@@ -6,8 +6,6 @@ A distributed matrix operations library build on top of [Spark](http://spark.apa
 ##Prerequisites
 As Saury is built on top of Spark, you need to get the Spark installed first.  If you are not clear how to setup Spark, please refer to the guidelines [here](http://spark.apache.org/docs/latest/). Currently, Saury is developed on the APIs of Spark 1.0.x version.
 
-The following show how to build and use the library.
-
 ##Compile Saury
 We have offered a default `build.sbt` file, make sure you have installed [sbt](http://www.scala-sbt.org/), and you can just type `sbt assembly` to get a assembly jar.
 
