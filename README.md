@@ -82,6 +82,13 @@ Currently, we have finished below APIs:
 	</tr>
 </table>   
 
+##Algorithms and Performance Evaluation
+###Algorithms
+Currently, we adopt the [block matrix manipulation algorithms](http://en.wikipedia.org/wiki/Block_matrix#Block_matrix_multiplication) to distribute large scale matrix computation among cluster. The details of the matrix multiplication algorithm is [here](https://github.com/PasaLab/saury/wiki/Matrix-multiply-algorithm).
+
+###Performance Evaluation
+We have done some performance evaluation of Saury. It can be seen [here](https://github.com/PasaLab/saury/wiki/Performance-comparison-on-matrices-multiply). We wiil update the wiki page when more results are carried out.
+
 ##The relationship between Saury and MLlib Matrix
 [MLlib](http://spark.apache.org/docs/latest/mllib-guide.html) contains quite a lot of general representations of Matrix. Saury extends some of them and provides the distributed manipulation for the matrices.
 
