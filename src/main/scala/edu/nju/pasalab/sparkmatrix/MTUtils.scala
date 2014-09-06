@@ -23,9 +23,7 @@ object MTUtils {
       val vec = Vectors.dense(e(1).split(",").map(_.toDouble))
       IndexRow(rowIndex,vec)
     })
-
-    val res = new IndexMatrix(rows)
-    res
+    new IndexMatrix(rows)
   }
 
   /**
@@ -40,16 +38,15 @@ object MTUtils {
       System.err.println("the path is not in local file System, HDFS or Tachyon")
       System.exit(1)
     }
-    val file = sc.wholeTextFiles(path, minPartition)
-    val rows = file.map(t =>{
-      val e = t._2.split(":")
-      val rowIndex = e(0).toLong
-      val vec = Vectors.dense(e(1).split(",").map(_.toDouble))
-      IndexRow(rowIndex,vec)
+    val files = sc.wholeTextFiles(path, minPartition)
+    val rows = files.flatMap(t =>{
+      val lines = t._2.split("\n")
+      lines.map( l =>{
+        val content = l.split(":")
+        IndexRow( content(0).toLong, Vectors.dense( content(1).split(",").map(_.toDouble) ))
+      })
     })
-
-    val res = new IndexMatrix(rows)
-    res
+    new IndexMatrix(rows)
   }
 
   /**
