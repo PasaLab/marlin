@@ -6,7 +6,7 @@ import edu.nju.pasalab.sparkmatrix.{MTUtils, IndexMatrix}
 
 /**
  * Test method matrixToArray in [[edu.nju.pasalab.sparkmatrix.MTUtils]]
- * Only in spark-shell, you can see the print result, in next step, we are moving this Object using [[org.scalatest.FunSuite]]
+ * Only in spark-shell, you can see the print result
  */
 object InitMatrix {
   def main(args: Array[String]) {

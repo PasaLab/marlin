@@ -57,10 +57,11 @@ object MTUtils {
    *
    * @param sc the running SparkContext
    * @param array the two dimension Double array
+   * @param partitions the default num of partitions when you create an RDD, you can set it by yourself
    */
-  def arrayToMatrix(sc:SparkContext , array: Array[Array[Double]] , para: Int = 2): IndexMatrix ={
+  def arrayToMatrix(sc:SparkContext , array: Array[Array[Double]] , partitions: Int = 2): IndexMatrix ={
     new IndexMatrix( sc.parallelize(array.zipWithIndex.
-      map{ case(t,i)  => IndexRow(i, Vectors.dense(t)) },para) )
+      map{ case(t,i)  => IndexRow(i, Vectors.dense(t)) },partitions) )
   }
 
   /**

@@ -6,7 +6,7 @@ import edu.nju.pasalab.sparkmatrix.MTUtils
 
 /**
  * Test LU decompose method, this method is still to be updated
- * Only in spark-shell, you can see the print result, in next step, we are moving this Object using [[org.scalatest.FunSuite]]
+ * Only in spark-shell, you can see the print result.
  */
 object LUdec {
   def main(args: Array[String]) {

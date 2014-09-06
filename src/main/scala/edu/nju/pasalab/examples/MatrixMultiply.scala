@@ -1,6 +1,5 @@
 package edu.nju.pasalab.examples
 
-
 import org.apache.spark.{SparkContext, SparkConf}
 
 import edu.nju.pasalab.sparkmatrix.MTUtils
@@ -16,6 +15,11 @@ object MatrixMultiply {
    * @param args args(0):<input file path A> args(1)<input file path B> args(2)<output file path> args(3)<block num>
    */
    def main (args: Array[String]) {
+    if (args.length != 4){
+      System.err.println("arguments wrong, the arguments should be " +
+        "<input file path A> <input file path B> <output file path> <block num>")
+      System.exit(-1)
+    }
     val conf = new SparkConf().setAppName("FileMatrixMultiply")
      val sc = new SparkContext(conf)
      val ma = MTUtils.loadMatrixFile(sc,args(0))
