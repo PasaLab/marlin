@@ -67,7 +67,8 @@ class IndexMatrix(
    *               When doing experiments, we multiply two 20000 by 20000 matrix together, we set it as 10.
    */
   final def multiply(other: IndexMatrix, blkNum: Int): IndexMatrix = {
-    require(this.numCols == other.numRows, s"Dimension mismatch: ${this.numCols} vs ${other.numRows}")
+    val otherRows = other.numRows()
+    require(this.numCols == otherRows, s"Dimension mismatch: ${this.numCols} vs ${otherRows}")
 
     val mRows = this.numRows()
     val mCols = other.numCols()
@@ -130,7 +131,7 @@ class IndexMatrix(
    */
   def luDecompose(mode: String = "auto"): (IndexMatrix, IndexMatrix) = {
     val iterations = this.numRows
-    require(iterations == this.numCols, s"currently we only support square matrix: ${iterations} vs ${this.numRows}")
+    require(iterations == this.numCols, s"currently we only support square matrix: ${iterations} vs ${this.numCols}")
 
 //    object LUmode extends Enumeration {
 //      val LocalBreeze, DistSpark = Value
@@ -223,7 +224,9 @@ class IndexMatrix(
    * @param other another matrix in IndexMatrix format
    */
   final def add(other: IndexMatrix): IndexMatrix = {
-    require(this.numRows == other.numRows, s"Dimension mismatch: ${this.numRows} vs ${other.numRows}")
+    val nRows = this.numRows()
+    val otherRows = other.numRows()
+    require(nRows == otherRows, s"Dimension mismatch: ${nRows} vs ${otherRows}")
     require(this.numCols == other.numCols, s"Dimension mismatch: ${this.numCols} vs ${other.numCols}")
 
     val result = this.rows
@@ -239,7 +242,9 @@ class IndexMatrix(
    * @param other another matrix in IndexMatrix format
    */
   final def minus(other: IndexMatrix): IndexMatrix = {
-    require(this.numRows == other.numRows, s"Dimension mismatch: ${this.numRows} vs ${other.numRows}")
+    val nRows = this.numRows()
+    val otherRows = other.numRows()
+    require(nRows == otherRows, s"Dimension mismatch: ${nRows} vs ${otherRows}")
     require(this.numCols == other.numCols, s"Dimension mismatch: ${this.numCols} vs ${other.numCols()}")
 
     val result = this.rows
