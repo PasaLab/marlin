@@ -1,13 +1,14 @@
-package edu.nju.pasalab.test
+package edu.nju.pasalab.examples
 
-import edu.nju.pasalab.sparkmatrix.{MTUtils, IndexMatrix, IndexRow, Vectors}
 import org.apache.spark.{SparkContext, SparkConf}
+
+import edu.nju.pasalab.sparkmatrix.MTUtils
 
 /**
  * Test LU decompose method, this method is still to be updated
  * Only in spark-shell, you can see the print result, in next step, we are moving this Object using [[org.scalatest.FunSuite]]
  */
-object TestLUdec {
+object LUdec {
   def main(args: Array[String]) {
     val conf = new SparkConf().setAppName("test lu decompose")
     val sc = new SparkContext(conf)

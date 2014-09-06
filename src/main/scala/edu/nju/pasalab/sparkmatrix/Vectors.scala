@@ -6,8 +6,6 @@ package edu.nju.pasalab.sparkmatrix
 import java.lang.{Iterable => JavaIterable, Integer => JavaInteger, Double => JavaDouble}
 import java.util.Arrays
 
-//import org.apache.spark.mllib.linalg.{SparseVector, DenseVector, Vector}
-
 import scala.annotation.varargs
 import scala.collection.JavaConverters._
 

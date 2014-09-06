@@ -1,14 +1,14 @@
-package edu.nju.pasalab.test
+package edu.nju.pasalab.examples
+
+import org.apache.spark.{SparkContext, SparkConf}
 
 import edu.nju.pasalab.sparkmatrix.{IndexMatrix, IndexRow, Vectors}
-import org.apache.log4j.Logger
-import org.apache.spark.{SparkContext, SparkConf}
 
 /**
  * Test element-element wise operations
  * Only in spark-shell, you can see the print result, in next step, we are moving this Object using [[org.scalatest.FunSuite]]
  */
-object TestMatrixElemOP {
+object MatrixElemOP {
 
   def main (args: Array[String]) {
     val conf = new SparkConf().setAppName("test IndexMatrix Slice Operations")

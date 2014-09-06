@@ -1,13 +1,14 @@
-package edu.nju.pasalab.test
+package edu.nju.pasalab.examples
+
+import org.apache.spark.{SparkContext, SparkConf}
 
 import edu.nju.pasalab.sparkmatrix.{MTUtils, IndexMatrix}
-import org.apache.spark.{SparkContext, SparkConf}
 
 /**
  * Test method matrixToArray in [[edu.nju.pasalab.sparkmatrix.MTUtils]]
  * Only in spark-shell, you can see the print result, in next step, we are moving this Object using [[org.scalatest.FunSuite]]
  */
-object TestInit {
+object InitMatrix {
   def main(args: Array[String]) {
     val conf = new SparkConf().setAppName("test init IndexMatrix")
     val sc = new SparkContext(conf)

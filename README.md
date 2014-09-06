@@ -15,7 +15,7 @@ We have offered a default `build.sbt` file, make sure you have installed [sbt](h
 We have already offered some examples in `edu.nju.pasalab.test` to show how to use the APIs in the project. For example, if you want to run two large matrices multiplication, use spark-submit method, and type in command
  
 	$.bin/spark-submit \
-	 --class edu.nju.pasalab.test.MatrixMultiply
+	 --class edu.nju.pasalab.examples.MatrixMultiply
 	 --master <master-url> \
 	 --executor-memory <memory> \
 	 saury-assembly-0.1-SNAPSHOT.jar \
@@ -76,7 +76,7 @@ Currently, we have finished below APIs:
 	</tr>
 	<tr>
 		<td>LU decomposition</td>
-        <td>LU Decompose(mode: String = "auto")</td>
+        <td>LUDecompose(mode: String = "auto")</td>
 	</tr>
 </table>   
 

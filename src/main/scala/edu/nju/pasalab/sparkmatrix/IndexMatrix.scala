@@ -1,15 +1,17 @@
 package edu.nju.pasalab.sparkmatrix
 
+
 import java.io.IOException
+
+import scala.collection.mutable.ArrayBuffer
+
+import breeze.linalg.{DenseMatrix => BDM}
 
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
-import breeze.linalg.{DenseMatrix => BDM}
-import breeze.linalg.{LU => bLU}
 import org.apache.spark.rdd.RDD
 
-import scala.collection.mutable.ArrayBuffer
 
 /**
  * This class overrides from [[org.apache.spark.mllib.linalg.distributed.IndexedRowMatrix]]

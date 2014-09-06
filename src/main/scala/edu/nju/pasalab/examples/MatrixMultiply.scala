@@ -1,10 +1,9 @@
-package edu.nju.pasalab.test
+package edu.nju.pasalab.examples
 
-import com.esotericsoftware.kryo.Kryo
-import edu.nju.pasalab.sparkmatrix.{BlockID, IndexRow, IndexMatrix, MTUtils}
-import org.apache.log4j.{Level, Logger}
-import org.apache.spark.serializer.KryoRegistrator
+
 import org.apache.spark.{SparkContext, SparkConf}
+
+import edu.nju.pasalab.sparkmatrix.MTUtils
 
 /**
  * Two large matrices multiply
