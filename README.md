@@ -23,11 +23,11 @@ We have already offer some tests in `edu.nju.pasalab.test` to test the API in th
 	 saury-assembly-0.1-SNAPSHOT.jar \
 	 <input file path A> <input file path B> <output file path> <block num>
 
-**Note:** Because the pre-built Spark-assembly jar doesn't have any files about netlib-java native compontent, which means you cannot load the native linear algebra library（e.g BLAS）, and have to use java to perform the small split-matrix multiply in every worker. We have do some experiments and find this has a significant performance difference, here you can find more info about the [performance comparison](https://github.com/PasaLab/saury/wiki/Performance-comparison-on-matrices-multiply) and [how to load native library](https://github.com/PasaLab/saury/wiki/How-to-load-native-linear-algebra-library).
+**Notice:** Because the pre-built Spark-assembly jar doesn't have any files about netlib-java native compontent, which means you cannot use the native linear algebra library（e.g BLAS）to accelerate the computing, but have to use pure java to perform the small block matrix multiply in every worker. We have done some experiments and find it has a significant performance difference between the native BLAS computing and the pure java one, here you can find more info about the [performance comparison](https://github.com/PasaLab/saury/wiki/Performance-comparison-on-matrices-multiply) and [how to load native library](https://github.com/PasaLab/saury/wiki/How-to-load-native-linear-algebra-library).
 
-**Note:**`<input file path A>` is the file path contains the text-file format matrix. We recommand you put it in the hdfs, and in directory `data` we offer two matrix files, in which every row of matrix likes: `7:1,2,5,2.0,3.19,0,...` the `7` before `:` means this is the 8th row of this matrix, and the numbers after `:` splited by `,` means every element in the row.
+**Note:**`<input file path A>` is the file path contains the text-file format matrix. We recommand you put it in the hdfs, and in directory `data` we offer two matrix files, in which every row of matrix likes: `7:1,2,5,2.0,3.19,0,...` the `7` before `:` means this is the 8th row of this matrix (the row index starts from 0), and the numbers after `:` splited by `,` means every element in the row.
 
-**Note:** `<block num>` is the split nums of submatries, if you set it as `10`, which means you split every original large matrix into `10*10=100` blocks. The smaller this argument, the biger every worker get submatrix. When doing experiments, we multiply two 20000 by 20000 matrix together, we set it as 10.         
+**Note:** `<block num>` is the split nums of submatries, if you set it as `10`, which means you split every original large matrix into `10*10=100` blocks. The smaller this argument is, the bigger submatrix every worker will get. When doing experiments, we multiply two 20000 by 20000 matrix together, we set it as 10.         
 
 ##Martix Operations API in Saury
 Currently, we have finished below APIs:
@@ -86,10 +86,10 @@ Currently, we have finished below APIs:
 Here we mainly talks about some basic classes and object in Saury to introuduce how to use it
 
 ###IndexRow
-We override class `IndexedRow` in MLlib，it is still a `(Long, Vector)` wraper, usage is the same as `IndexedRow` .
+We override class `IndexedRow` in [MLlib](http://spark.apache.org/docs/latest/mllib-guide.html)，it is still a `(Long, Vector)` wraper, usage is the same as `IndexedRow` .
 
 ###IndexMatrix
-We override class `IndexedRowMatrix` in MLlib，from `RDD[IndexedRow]` to `RDD[IndexRow]`， usage is the same as `IndexedRowMatrix` .
+We override class `IndexedRowMatrix` in [MLlib](http://spark.apache.org/docs/latest/mllib-guide.html)，from `RDD[IndexedRow]` to `RDD[IndexRow]`， usage is the same as `IndexedRowMatrix` .
 
 ###MTUtils
 This object can load file-format matrix from hdfs and tachyon, with `loadMatrixFile(sc: SparkContext, path: String, minPatition: Int = 3)` method
