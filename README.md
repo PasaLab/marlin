@@ -1,7 +1,7 @@
 Saury
 ============
 
-A distributed matrix operations library build on top of [Spark](http://spark.apache.org/) to handle large-scale matrices. Now, the master branch is in version 0.1-SNAPSHOT.  
+A distributed matrix operations library build on top of [Spark](http://spark.apache.org/). Now, the master branch is in version 0.1-SNAPSHOT.  
 
 ##Prerequisites
 As Saury is built on top of Spark, you need to get the Spark installed first.  If you are not clear how to setup Spark, please refer to the guidelines [here](http://spark.apache.org/docs/latest/). Currently, Saury is developed on the APIs of Spark 1.0.x version.
