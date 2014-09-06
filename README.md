@@ -63,20 +63,20 @@ Currently, we have finished below APIs:
         <td>elemWiseDivide(b: Double) / elemWiseDivideBy(b: Double) </td>
 	</tr>
 	<tr>
-		<td>get submatrix according to row</td>
+		<td>Get submatrix according to row</td>
         <td>sliceByRow(startRow: Long, endRow: Long)</td>
 	</tr>
 	<tr>
-		<td>get submatrix according to column</td>
+		<td>Get submatrix according to column</td>
         <td>sliceByColumn(startCol: Int, endCol: Int)</td>
 	</tr>
 	<tr>
-		<td>get submatrix</td>
+		<td>Get submatrix</td>
         <td>getSubMatrix(startRow: Long, endRow: Long ,startCol: Int, endCol: Int)</td>
 	</tr>
 	<tr>
 		<td>LU decomposition</td>
-        <td>LUDecompose(mode: String = "auto")</td>
+        <td>LU Decompose(mode: String = "auto")</td>
 	</tr>
 </table>   
 
