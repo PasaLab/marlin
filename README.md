@@ -12,7 +12,7 @@ We have offered a default `build.sbt` file, make sure you have installed [sbt](h
 **Note:** In `build.sbt` file, the default Spark Version is 1.0.1, and the default Hadoop version is 2.3.0, you can modify the `build.sbt` file to fit your environment.   
 
 ##Run Saury
-We have already offered some examples in `edu.nju.pasalab.test` to show how to use the APIs in the project. For example, if you want to run two large matrices multiplication, use spark-submit method, and type in command
+We have already offered some examples in `edu.nju.pasalab.examples` to show how to use the APIs in the project. For example, if you want to run two large matrices multiplication, use spark-submit method, and type in command
  
 	$.bin/spark-submit \
 	 --class edu.nju.pasalab.examples.MatrixMultiply
