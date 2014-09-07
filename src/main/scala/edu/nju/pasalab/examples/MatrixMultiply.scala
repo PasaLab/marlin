@@ -21,6 +21,7 @@ object MatrixMultiply {
       System.exit(-1)
     }
     val conf = new SparkConf().setAppName("FileMatrixMultiply")
+     conf.set("spark.storage.memoryFraction", "0.5")
      val sc = new SparkContext(conf)
      val ma = MTUtils.loadMatrixFile(sc,args(0))
      val mb = MTUtils.loadMatrixFile(sc,args(1))

@@ -19,7 +19,7 @@ import org.apache.spark.rdd.RDD
 class IndexMatrix(
     val rows: RDD[IndexRow],
     private var nRows: Long,
-    private var nCols: Int) extends DistributedMatrix{
+    private var nCols: Long) extends DistributedMatrix{
 
   def this(rows: RDD[IndexRow]) = this(rows, 0L, 0)
 
@@ -114,7 +114,7 @@ class IndexMatrix(
         arrayBuf += ((i - b * smRows + t._1.row * mBlcokRowSize, b + t._1.column * mBlcokColSize, res(i)))
       }
       arrayBuf
-      })
+      }).cache()
       .map(t => (t._1, (t._2, t._3)))
       .groupByKey()
       .map(genIndexRow)
