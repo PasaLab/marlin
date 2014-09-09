@@ -25,7 +25,7 @@ We have already offered some examples in `edu.nju.pasalab.examples` to show how 
 
 **Note:**`<input file path A>` is the file path contains the text-file format matrix. We recommand you put it in the hdfs, and in directory `data` we offer two matrix files, in which every row of matrix likes: `7:1,2,5,2.0,3.19,0,...` the `7` before `:` means this is the 8th row of this matrix (the row index starts from 0), and the numbers after `:` splited by `,` represent each column element in the row.
 
-**Note:** `<block num>` is the split nums of sub-matries, if you set it as `10`, which means you split every original large matrix into `10*10=100` blocks. In fact, this parameter is the degree of parallelism. The smaller this argument is, the bigger submatrix every worker will get. When doing experiments, we multiply two 20000 by 20000 matrix together, we set it as 10.         
+**Note:** `<block num>` is the split nums of sub-matries, if you set it as `5`, which means you split every original large matrix into `5*5=25` blocks. In fact, this parameter is the degree of parallelism. The smaller this argument is, the bigger submatrix every worker will get. When doing experiments, we multiply two 20000 by 20000 matrix together, we set it as 5.         
 
 ##Martix Operations API in Saury
 Currently, we have finished below APIs:

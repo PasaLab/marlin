@@ -11,7 +11,7 @@ object MTUtils {
    * @param path the path where store the matrix
    * @param minPartition the min num of partitions of the matrix to load in Spark
    */
-  def loadMatrixFile(sc: SparkContext, path: String, minPartition: Int = 3): IndexMatrix = {
+  def loadMatrixFile(sc: SparkContext, path: String, minPartition: Int = 16): IndexMatrix = {
     if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://") && !path.startsWith("file://")) {
       System.err.println("the path is not in local file System, HDFS or Tachyon")
       System.exit(1)
@@ -33,7 +33,7 @@ object MTUtils {
    * @param path the path where store the matrix
    * @param minPartition the min num of partitions of the matrix to load in Spark
    */
-  def loadMatrixFiles(sc: SparkContext, path: String, minPartition: Int = 3): IndexMatrix = {
+  def loadMatrixFiles(sc: SparkContext, path: String, minPartition: Int = 16): IndexMatrix = {
     if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://") && !path.startsWith("file://")) {
       System.err.println("the path is not in local file System, HDFS or Tachyon")
       System.exit(1)
