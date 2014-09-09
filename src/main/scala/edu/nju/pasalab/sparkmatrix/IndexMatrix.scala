@@ -21,6 +21,7 @@ class IndexMatrix(
     private var nRows: Long,
     private var nCols: Long) extends DistributedMatrix{
 
+  private var resultCols:Long = 0
   def this(rows: RDD[IndexRow]) = this(rows, 0L, 0)
 
   def this(sc: SparkContext , array: Array[Array[Double]] , partitions: Int = 2){
@@ -70,6 +71,8 @@ class IndexMatrix(
     val otherRows = other.numRows()
     require(this.numCols == otherRows, s"Dimension mismatch: ${this.numCols} vs ${otherRows}")
 
+    resultCols = other.numCols()
+
     val mRows = this.numRows()
     val mCols = other.numCols()
     val mBlcokRowSize = math.ceil(mRows.toDouble / blkNum.toDouble).toInt
@@ -95,31 +98,31 @@ class IndexMatrix(
       Logger.getLogger(this.getClass).log(Level.INFO, "from breeze time: " + (t4 - t3).toString + " ms")
 
       (new BlockID(t._1.row, t._1.column), resultMat)
-      })
+      }).cache()
       .groupByKey()
-      .flatMap(t => {
-      val list = t._2.toArray
-      val smRows = list(0).numRows
-      val smCols = list(0).numCols
-      val res = Array.ofDim[Double](smRows * smCols)
-      for (elem <- list) {
-        val array = elem.toArray
-        for (i <- 0 until array.length) {
-          res(i) += array(i)
+      .flatMap( t => {
+        val example = t._2.head
+        val smRows = example.numRows
+        val smCols = example.numCols
+        var mat = new BDM[Double](smRows, smCols)
+        for ( m <- t._2){
+          mat = mat + m.toBreeze.asInstanceOf[BDM[Double]]
         }
-      }
-      var arrayBuf = new ArrayBuffer[(Int, Int, Double)]
-      for (i <- 0 until res.length) {
-        val b: Int = i / smRows
-        arrayBuf += ((i - b * smRows + t._1.row * mBlcokRowSize, b + t._1.column * mBlcokColSize, res(i)))
+      val array = mat.data
+      val arrayBuf = Array.ofDim[(Int, (Int, Array[Double]))](smRows)
+      for ( i <- 0 until smRows){
+        val tmp = Array.ofDim[Double](smCols)
+        for (j <- 0 until tmp.length){
+          tmp(j) = array(j * smRows + i)
+        }
+        arrayBuf(i) = ( t._1.row * mBlcokRowSize + i, (t._1.column, tmp) )
       }
       arrayBuf
       }).cache()
-      .map(t => (t._1, (t._2, t._3)))
       .groupByKey()
       .map(genIndexRow)
 
-    new IndexMatrix(result)
+     new IndexMatrix(result)
 
   }
 
@@ -371,13 +374,13 @@ class IndexMatrix(
   /**
    * function used in multiply
    */
-  private [sparkmatrix] def collectTable(matrix: IndexMatrix, blkNum: Int, matrixPos: Boolean)
+  private [sparkmatrix] def collectTable(matrix: IndexMatrix, blckkNum: Int, matrixPos: Boolean)
   :RDD[(BlockID, DenseMatrix)] = {
     //val log = Logger.getLogger(this.getClass)
     val mRows = matrix.numRows().toInt
     val mColumns = matrix.numCols().toInt
-    val mBlockRowSize = math.ceil(mRows.toDouble / blkNum.toDouble).toInt
-    val mBlockColSize = math.ceil(mColumns.toDouble / blkNum.toDouble).toInt
+    val mBlockRowSize = math.ceil(mRows.toDouble / blckkNum.toDouble).toInt
+    val mBlockColSize = math.ceil(mColumns.toDouble / blckkNum.toDouble).toInt
     //get subVector according to34 the column size and is keyed by the blockID
     matrix.rows.flatMap( t =>{
         var startColumn = 0
@@ -445,14 +448,14 @@ class IndexMatrix(
         val subMatrix = new DenseMatrix(smRows, smCols, array)
         var arrayBuf = new ArrayBuffer[(BlockID , DenseMatrix)]
         if (matrixPos) {
-          for (x <- 0 to blkNum - 1) {
-            val r: Int = input._1.row * blkNum * blkNum
-            val seq: Int = x * blkNum + input._1.column+ r
+          for (x <- 0 to blckkNum - 1) {
+            val r: Int = input._1.row * blckkNum * blckkNum
+            val seq: Int = x * blckkNum + input._1.column+ r
             arrayBuf += ((new BlockID( input._1.row, x, seq), subMatrix))
           }
         }else{
-          for (x <- 0 to blkNum - 1) {
-            val seq = x * blkNum * blkNum + input._1.column * blkNum + input._1.row
+          for (x <- 0 to blckkNum - 1) {
+            val seq = x * blckkNum * blckkNum + input._1.column * blckkNum + input._1.row
             arrayBuf += ((new BlockID(x, input._1.column, seq), subMatrix))
           }
         }
@@ -463,11 +466,16 @@ class IndexMatrix(
   /**
    * function used in multiply
    */
-  private [sparkmatrix] def genIndexRow(input: ( Int, Iterable[( Int, Double)] )): IndexRow = {
+  private [sparkmatrix] def genIndexRow(input: ( Int, Iterable[( Int, Array[Double])] )): IndexRow = {
     val itr = input._2.toList
-    val array = Array.ofDim[Double](itr.length)
+    val num = itr.size
+    val mBlockColSize = math.ceil( resultCols.toDouble / num.toDouble).toInt
+    val array = Array.ofDim[Double]( resultCols.toInt)
     for (it <- itr) {
-      array(it._1) += it._2
+      val colStart = mBlockColSize * it._1
+      for ( i <- 0 until it._2.length){
+        array( colStart + i ) = it._2(i)
+      }
     }
     new IndexRow(input._1 , Vectors.dense(array))
   }
