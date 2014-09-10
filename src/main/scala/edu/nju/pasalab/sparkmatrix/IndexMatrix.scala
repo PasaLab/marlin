@@ -90,24 +90,26 @@ class IndexMatrix(
       Logger.getLogger(this.getClass).log(Level.INFO, "to breeze time: " + (t2 - t1).toString + " ms")
       Logger.getLogger(this.getClass).log(Level.INFO, "b1 rows: " + b1.rows + " , b1 cols: " + b1.cols)
       Logger.getLogger(this.getClass).log(Level.INFO, "b2 rows: " + b2.rows + " , b2 cols: " + b2.cols)
-      val result = b1 * b2
-      val t3 = System.currentTimeMillis()
-      Logger.getLogger(this.getClass).log(Level.INFO, "breeze multiply time: " + (t3 - t2).toString + " ms")
-      val resultMat = Matrices.fromBreeze(result)
-      val t4 = System.currentTimeMillis()
-      Logger.getLogger(this.getClass).log(Level.INFO, "from breeze time: " + (t4 - t3).toString + " ms")
 
-      (new BlockID(t._1.row, t._1.column), resultMat)
+      val result = (b1 * b2).asInstanceOf[BDM[Double]]
+      val t3 = System.currentTimeMillis()
+
+      Logger.getLogger(this.getClass).log(Level.INFO, "breeze multiply time: " + (t3 - t2).toString + " ms")
+
+      (new BlockID(t._1.row, t._1.column), result)
       }).cache()
       .groupByKey()
       .flatMap( t => {
-        val example = t._2.head
-        val smRows = example.numRows
-        val smCols = example.numCols
-        var mat = new BDM[Double](smRows, smCols)
-        for ( m <- t._2){
-          mat = mat + m.toBreeze.asInstanceOf[BDM[Double]]
-        }
+      val example = t._2.head
+      val smRows = example.rows
+      val smCols = example.cols
+      val t1 = System.currentTimeMillis()
+      var mat = new BDM[Double](smRows, smCols)
+      for ( m <- t._2){
+        mat = mat + m.asInstanceOf[BDM[Double]]
+      }
+      Logger.getLogger(this.getClass).log(Level.INFO, "breeze add time: "
+        + (System.currentTimeMillis() - t1).toString + " ms")
       val array = mat.data
       val arrayBuf = Array.ofDim[(Int, (Int, Array[Double]))](smRows)
       for ( i <- 0 until smRows){
