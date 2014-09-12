@@ -5,6 +5,54 @@ import org.apache.spark.SparkContext
 object MTUtils {
 
   /**
+   * Function to design the method how to split input two matrices
+   *
+   * @param m rows num of Matrix A
+   * @param k columns num of Matrix A, also rows num of Matrix B
+   * @param n columns num of Matrix B
+   * @param cores all the cores cross the cluster
+   * @return rows of Matrix A to be split nums, columns of Matrix A to be split nums,
+   *         columns of Matrix B to be split nums
+   */
+
+  def splitMethod(m: Long, k: Long, n: Long, cores: Int): (Int, Int, Int) = {
+    var mSplitNum = 1
+    var kSplitNum = 1
+    var nSplitNum = 1
+    var _m = m
+    var _k = k
+    var _n = n
+    var _cores = cores
+    while (_cores > 1) {
+      if (dimToSplit(_m, _k, _n) == 1) {
+        nSplitNum *= 2
+        _n /= 2
+        _cores /= 2
+      } else if (dimToSplit(_m, _k, _n) == 2) {
+        mSplitNum *= 2
+        _m /= 2
+        _cores /= 2
+      } else {
+        kSplitNum *= 2
+        _k /= 2
+        _cores /= 2
+      }
+    }
+    (mSplitNum, kSplitNum, nSplitNum)
+  }
+
+  private  def dimToSplit(m: Long, k: Long, n: Long): Int={
+    var result = 0
+    if (n >= k && n >= m) {
+      result = 1
+    }else if (m >= k && m >= n) {
+      result = 2
+    }
+    else result = 3
+    result
+  }
+
+  /**
    * Function to load matrix from file
    *
    * @param sc the running SparkContext

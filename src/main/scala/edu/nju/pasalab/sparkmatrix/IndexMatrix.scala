@@ -58,6 +58,23 @@ class IndexMatrix(
     mat
   }
 
+//  /**
+//   * try to use CARMA, but currently we just change the split method
+//   *
+//   * @param other
+//   * @param cores
+//   * @return
+//   */
+
+//  final def multiplyCarma(other: IndexMatrix, cores: Int): IndexMatrix = {
+//    val otherRows = other.numRows()
+//    require(this.numCols == otherRows, s"Dimension mismatch: ${this.numCols} vs ${otherRows}")
+//    val splitWay = MTUtils.splitMethod(this.numRows(), this.numCols(), other.numRows(),cores)
+//
+//
+//  }
+
+
   /**
    * A matrix multiply another IndexMatrix
    *
@@ -67,7 +84,7 @@ class IndexMatrix(
    *               The smaller this argument, the biger every worker get submatrix.
    *               When doing experiments, we multiply two 20000 by 20000 matrix together, we set it as 10.
    */
-  final def multiply(other: IndexMatrix, blkNum: Int): IndexMatrix = {
+  final def multiply(other: IndexMatrix, blkNum: Int): BlockMatrix = {
     val otherRows = other.numRows()
     require(this.numCols == otherRows, s"Dimension mismatch: ${this.numCols} vs ${otherRows}")
 
@@ -82,16 +99,15 @@ class IndexMatrix(
     val mBcollects = collectTable(other, blkNum, false)
     val result = mAcollects.join(mBcollects).
       map(t => {
-      val t1 = System.currentTimeMillis()
-      val b1 = t._2._1.toBreeze.asInstanceOf[BDM[Double]]
-      val b2 = t._2._2.toBreeze.asInstanceOf[BDM[Double]]
+      val b1 = t._2._1.asInstanceOf[BDM[Double]]
+      val b2 = t._2._2.asInstanceOf[BDM[Double]]
       val t2 = System.currentTimeMillis()
 
-      Logger.getLogger(this.getClass).log(Level.INFO, "to breeze time: " + (t2 - t1).toString + " ms")
       Logger.getLogger(this.getClass).log(Level.INFO, "b1 rows: " + b1.rows + " , b1 cols: " + b1.cols)
       Logger.getLogger(this.getClass).log(Level.INFO, "b2 rows: " + b2.rows + " , b2 cols: " + b2.cols)
 
       val result = (b1 * b2).asInstanceOf[BDM[Double]]
+
       val t3 = System.currentTimeMillis()
 
       Logger.getLogger(this.getClass).log(Level.INFO, "breeze multiply time: " + (t3 - t2).toString + " ms")
@@ -99,7 +115,7 @@ class IndexMatrix(
       (new BlockID(t._1.row, t._1.column), result)
       }).cache()
       .groupByKey()
-      .flatMap( t => {
+      .map( t => {
       val example = t._2.head
       val smRows = example.rows
       val smCols = example.cols
@@ -110,22 +126,10 @@ class IndexMatrix(
       }
       Logger.getLogger(this.getClass).log(Level.INFO, "breeze add time: "
         + (System.currentTimeMillis() - t1).toString + " ms")
-      val array = mat.data
-      val arrayBuf = Array.ofDim[(Int, (Int, Array[Double]))](smRows)
-      for ( i <- 0 until smRows){
-        val tmp = Array.ofDim[Double](smCols)
-        for (j <- 0 until tmp.length){
-          tmp(j) = array(j * smRows + i)
-        }
-        arrayBuf(i) = ( t._1.row * mBlcokRowSize + i, (t._1.column, tmp) )
-      }
-      arrayBuf
-      }).cache()
-      .groupByKey()
-      .map(genIndexRow)
+      new Block(t._1, mat)
+    })
 
-     new IndexMatrix(result)
-
+    new BlockMatrix(result, 0L, 0L, blkNum, blkNum)
   }
 
   /**
@@ -377,7 +381,7 @@ class IndexMatrix(
    * function used in multiply
    */
   private [sparkmatrix] def collectTable(matrix: IndexMatrix, blckkNum: Int, matrixPos: Boolean)
-  :RDD[(BlockID, DenseMatrix)] = {
+  :RDD[(BlockID, BDM[Double])] = {
     //val log = Logger.getLogger(this.getClass)
     val mRows = matrix.numRows().toInt
     val mColumns = matrix.numCols().toInt
@@ -447,8 +451,8 @@ class IndexMatrix(
           }
         }
 
-        val subMatrix = new DenseMatrix(smRows, smCols, array)
-        var arrayBuf = new ArrayBuffer[(BlockID , DenseMatrix)]
+        val subMatrix = new BDM(smRows, smCols, array)
+        var arrayBuf = new ArrayBuffer[(BlockID , BDM[Double])]
         if (matrixPos) {
           for (x <- 0 to blckkNum - 1) {
             val r: Int = input._1.row * blckkNum * blckkNum
@@ -463,23 +467,6 @@ class IndexMatrix(
         }
         arrayBuf
     })
-  }
-
-  /**
-   * function used in multiply
-   */
-  private [sparkmatrix] def genIndexRow(input: ( Int, Iterable[( Int, Array[Double])] )): IndexRow = {
-    val itr = input._2.toList
-    val num = itr.size
-    val mBlockColSize = math.ceil( resultCols.toDouble / num.toDouble).toInt
-    val array = Array.ofDim[Double]( resultCols.toInt)
-    for (it <- itr) {
-      val colStart = mBlockColSize * it._1
-      for ( i <- 0 until it._2.length){
-        array( colStart + i ) = it._2(i)
-      }
-    }
-    new IndexRow(input._1 , Vectors.dense(array))
   }
 
 }

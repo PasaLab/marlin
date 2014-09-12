@@ -94,4 +94,6 @@ We override class `IndexedRow` in [MLlib](http://spark.apache.org/docs/latest/ml
 
 We override class `IndexedRowMatrix` in [MLlib](http://spark.apache.org/docs/latest/mllib-guide.html)，from `RDD[IndexedRow]` to `RDD[IndexRow]`， usage is the same as `IndexedRowMatrix` . Moreover, you can transfom a local `Array[Array[Double]]` to a `IndexMatrix` by using `new IndexMatrix(sc, array)` method.
 
+We create class `BlockMatrix` from `RDD[Block]` where `Block` is a wraper of `(BlockID, BDM[Double])` (here, BDM is short for `breeze.linalg.DenseMatrix`).
+
 The MTUtils can load file-format matrix from hdfs and [tachyon](http://tachyon-project.org/), with `loadMatrixFile(sc: SparkContext, path: String, minPatition: Int = 3)` method

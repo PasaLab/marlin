@@ -24,8 +24,9 @@ object MatrixMultiply {
     val conf = new SparkConf().setAppName("FileMatrixMultiply")
     /**if the matrices are too large, you can set below properties to tune the Spark well*/
     conf.set("spark.storage.memoryFraction", "0.5")
+    conf.set("spark.eventLog.enabled", "true")
     conf.set("spark.storage.blockManagerTimeoutIntervalMs", "80000")
-    conf.set("spark.default.parallelism", "68")
+//    conf.set("spark.default.parallelism", "34")
     conf.set("spark.shuffle.file.buffer.kb", "200")
     conf.set("spark.akka.threads", "8")
 //    conf.set("spark.local.dir", "/data/spark_dir")
