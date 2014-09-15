@@ -26,7 +26,7 @@ object MatrixMultiply {
     conf.set("spark.storage.memoryFraction", "0.5")
     conf.set("spark.eventLog.enabled", "true")
     conf.set("spark.storage.blockManagerTimeoutIntervalMs", "80000")
-//    conf.set("spark.default.parallelism", "34")
+//    conf.set("spark.default.parallelism", "68")
     conf.set("spark.shuffle.file.buffer.kb", "200")
     conf.set("spark.akka.threads", "8")
 //    conf.set("spark.local.dir", "/data/spark_dir")
@@ -34,6 +34,7 @@ object MatrixMultiply {
     val ma = MTUtils.loadMatrixFile(sc, args(0))
     val mb = MTUtils.loadMatrixFile(sc, args(1))
     val result =  ma.multiply(mb, args(3).toInt)
+
     result.saveToFileSystem(args(2))
     sc.stop()
 

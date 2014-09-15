@@ -1,13 +1,14 @@
 package edu.nju.pasalab.sparkmatrix
 
 import breeze.linalg.{DenseMatrix => BDM}
+import org.apache.log4j.{Level, Logger}
 
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext._
 
 /**
  * BlockMatrix representing several [[breeze.linalg.DenseMatrix]] make up the matrix
- * with BlockID, every block should have the same rows and columns
+ * with BlockID
  *
  * @param blocks blocks of this matrix
  * @param nRows number of rows
@@ -61,7 +62,107 @@ class BlockMatrix(
   }
 
   /** Collects data and assembles a local dense breeze matrix (for test only). */
-  override private[sparkmatrix] def toBreeze(): BDM[Double] = ???
+  override private[sparkmatrix] def toBreeze(): BDM[Double] = {
+    val m = numRows().toInt
+    val n = numCols().toInt
+    val mostBlkRowLen =math.ceil(m.toDouble / blksByRow.toDouble).toInt
+    val mostBlkColLen =math.ceil(n.toDouble / blksByCol.toDouble).toInt
+    val mat = BDM.zeros[Double](m, n)
+    blocks.collect().foreach{
+      case Block(blkID, matrix) =>
+        val rowStart = blkID.row
+        val colStart = blkID.column
+        matrix.activeIterator.foreach{
+          case ((i, j), v) =>
+            mat(rowStart * mostBlkRowLen + i, colStart * mostBlkColLen + j) = v
+        }
+    }
+    mat
+  }
+
+  /**
+   * matrix-matrix multiplication between two BlockMatrix
+   * @param other the matrix to be multiplied
+   * @return the multiplication result in BlockMatrix form
+   */
+  final def multiply(other: BlockMatrix): BlockMatrix = {
+    require(this.numCols == other.numRows(), s"Dimension mismatch: ${this.numCols} vs ${other.numRows()}")
+    //num of rows to be split of this matrix
+    val mSplitNum = this.numBlksByRow()
+    //num of columns to be split of this matrix, meanwhile num of rows of that matrix
+    val kSplitNum = this.numBlksByCol()
+    //num of columns to be split of that matrix
+    val nSplitNum = other.numBlksByCol()
+    val thisEmitBlocks = blocks.flatMap( t => {
+      val array = Array.ofDim[(BlockID, BDM[Double])](nSplitNum)
+      for (i <- 0 until nSplitNum){
+        val seq = t.blockID.row * nSplitNum * kSplitNum + i * kSplitNum + t.blockID.column
+        array(i) = (new BlockID(t.blockID.row, i, seq), t.matrix)
+      }
+      array
+    })
+
+    val otherEmitBlocks = other.blocks.flatMap( t =>{
+      val array = Array.ofDim[(BlockID, BDM[Double])](mSplitNum)
+      for (i <- 0 until mSplitNum){
+        val seq = i * nSplitNum * kSplitNum + t.blockID.column * kSplitNum + t.blockID.row
+        array(i) = (new BlockID(i, t.blockID.column, seq), t.matrix)
+      }
+      array
+    })
+
+    if ( kSplitNum == 1) {
+      val result = thisEmitBlocks.join(otherEmitBlocks).map(t => {
+        val b1 = t._2._1.asInstanceOf[BDM[Double]]
+        val b2 = t._2._2.asInstanceOf[BDM[Double]]
+        val t2 = System.currentTimeMillis()
+
+        Logger.getLogger(this.getClass).log(Level.INFO, "b1 rows: " + b1.rows + " , b1 cols: " + b1.cols)
+        Logger.getLogger(this.getClass).log(Level.INFO, "b2 rows: " + b2.rows + " , b2 cols: " + b2.cols)
+
+        val c = (b1 * b2).asInstanceOf[BDM[Double]]
+
+        val t3 = System.currentTimeMillis()
+
+        Logger.getLogger(this.getClass).log(Level.INFO, "breeze multiply time: " + (t3 - t2).toString + " ms")
+        new Block(t._1, c)
+      })
+      new BlockMatrix(result, 0L, 0L, mSplitNum, nSplitNum)
+    }else{
+      val result = thisEmitBlocks.join(otherEmitBlocks).map(t => {
+        val b1 = t._2._1.asInstanceOf[BDM[Double]]
+        val b2 = t._2._2.asInstanceOf[BDM[Double]]
+        val t2 = System.currentTimeMillis()
+
+        Logger.getLogger(this.getClass).log(Level.INFO, "b1 rows: " + b1.rows + " , b1 cols: " + b1.cols)
+        Logger.getLogger(this.getClass).log(Level.INFO, "b2 rows: " + b2.rows + " , b2 cols: " + b2.cols)
+
+        val c = (b1 * b2).asInstanceOf[BDM[Double]]
+
+        val t3 = System.currentTimeMillis()
+
+        Logger.getLogger(this.getClass).log(Level.INFO, "breeze multiply time: " + (t3 - t2).toString + " ms")
+        (new BlockID(t._1.row, t._1.column), c)
+      }).cache()
+        .groupByKey()
+        .map( t => {
+        val example = t._2.head
+        val smRows = example.rows
+        val smCols = example.cols
+        val t1 = System.currentTimeMillis()
+        var mat = new BDM[Double](smRows, smCols)
+        for ( m <- t._2){
+          mat = mat + m.asInstanceOf[BDM[Double]]
+        }
+        Logger.getLogger(this.getClass).log(Level.INFO, "breeze add time: "
+          + (System.currentTimeMillis() - t1).toString + " ms")
+        new Block(t._1, mat)
+      })
+      new BlockMatrix(result, numRows(), other.numCols(), mSplitNum, nSplitNum)
+    }
+  }
+
+
 
   /**
    * Save the result to the HDFS
@@ -109,4 +210,7 @@ class BlockMatrix(
 
     new IndexMatrix(result)
   }
+
+
+
 }

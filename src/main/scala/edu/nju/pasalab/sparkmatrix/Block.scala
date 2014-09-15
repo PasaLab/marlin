@@ -2,7 +2,7 @@ package edu.nju.pasalab.sparkmatrix
 
 import breeze.linalg.{DenseMatrix => BDM}
 
-class Block(val blockID: BlockID, val matrix: BDM[Double]) extends Serializable{
+case class Block(val blockID: BlockID, val matrix: BDM[Double]) extends Serializable{
 
   /** get the index row from the BlockID **/
   def blkIndexRow(): Int = {
