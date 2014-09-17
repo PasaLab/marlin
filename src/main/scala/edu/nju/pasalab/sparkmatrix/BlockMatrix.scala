@@ -86,7 +86,8 @@ class BlockMatrix(
    * @return the multiplication result in BlockMatrix form
    */
   final def multiply(other: BlockMatrix): BlockMatrix = {
-    require(this.numCols == other.numRows(), s"Dimension mismatch: ${this.numCols} vs ${other.numRows()}")
+
+    require(this.numCols() == other.numRows(), s"Dimension mismatch: ${this.numCols()} vs ${other.numRows()}")
     //num of rows to be split of this matrix
     val mSplitNum = this.numBlksByRow()
     //num of columns to be split of this matrix, meanwhile num of rows of that matrix
@@ -126,8 +127,8 @@ class BlockMatrix(
 
         Logger.getLogger(this.getClass).log(Level.INFO, "breeze multiply time: " + (t3 - t2).toString + " ms")
         new Block(t._1, c)
-      })
-      new BlockMatrix(result, 0L, 0L, mSplitNum, nSplitNum)
+      }).cache()
+      new BlockMatrix(result, this.numRows(), other.numCols(), mSplitNum, nSplitNum)
     }else{
       val result = thisEmitBlocks.join(otherEmitBlocks).map(t => {
         val b1 = t._2._1.asInstanceOf[BDM[Double]]
@@ -158,7 +159,7 @@ class BlockMatrix(
           + (System.currentTimeMillis() - t1).toString + " ms")
         new Block(t._1, mat)
       })
-      new BlockMatrix(result, numRows(), other.numCols(), mSplitNum, nSplitNum)
+      new BlockMatrix(result, this.numRows(), other.numCols(), mSplitNum, nSplitNum)
     }
   }
 
@@ -182,7 +183,7 @@ class BlockMatrix(
   def toIndexmatrix(): IndexMatrix = {
     val mostBlockRowLen = math.ceil( numRows().toDouble / numBlksByRow().toDouble).toInt
     val mostBlockColLen = math.ceil( numCols().toDouble / numBlksByCol().toDouble).toInt
-
+//    blocks.cache()
     val result = this.blocks.flatMap( t => {
       val smRows = t.matrix.rows
       val smCols = t.matrix.cols

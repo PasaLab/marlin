@@ -70,7 +70,7 @@ class IndexMatrix(
   final def multiplyCarma(other: IndexMatrix, cores: Int): BlockMatrix = {
     val otherRows = other.numRows()
     require(this.numCols == otherRows, s"Dimension mismatch: ${this.numCols} vs ${otherRows}")
-    val (mSplitNum, kSplitNum, nSplitNum) = MTUtils.splitMethod(this.numRows(), this.numCols(), other.numRows(), cores)
+    val (mSplitNum, kSplitNum, nSplitNum) = MTUtils.splitMethod(this.numRows(), this.numCols(), other.numCols(), cores)
     val thisCollects = this.toBlockMatrix(mSplitNum, kSplitNum)
     val otherCollects = other.toBlockMatrix(kSplitNum, nSplitNum)
     thisCollects.multiply(otherCollects)
