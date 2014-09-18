@@ -1,5 +1,7 @@
 package edu.nju.pasalab.sparkmatrix
 
+import breeze.linalg.{DenseMatrix => BDM}
+
 import org.apache.spark.SparkContext
 
 object MTUtils {
@@ -23,7 +25,7 @@ object MTUtils {
     var _k = k
     var _n = n
     var _cores = cores
-    while (_cores > 1) {
+    while (_cores > 1 && _m > 1 && _k > 1 && _n > 1) {
       if (dimToSplit(_m, _k, _n) == 1) {
         nSplitNum *= 2
         _n /= 2
@@ -41,7 +43,7 @@ object MTUtils {
     (mSplitNum, kSplitNum, nSplitNum)
   }
 
-  private  def dimToSplit(m: Long, k: Long, n: Long): Int={
+  private def dimToSplit(m: Long, k: Long, n: Long): Int={
     var result = 0
     if (n >= k && n >= m) {
       result = 1
@@ -59,7 +61,7 @@ object MTUtils {
    * @param path the path where store the matrix
    * @param minPartition the min num of partitions of the matrix to load in Spark
    */
-  def loadMatrixFile(sc: SparkContext, path: String, minPartition: Int = 2): IndexMatrix = {
+  def loadMatrixFile(sc: SparkContext, path: String, minPartition: Int = 4): IndexMatrix = {
     if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://") && !path.startsWith("file://")) {
       System.err.println("the path is not in local file System, HDFS or Tachyon")
       System.exit(1)
@@ -75,13 +77,35 @@ object MTUtils {
   }
 
   /**
+   * Function to load block matrix from file
+   *
+   * @param sc the running SparkContext
+   * @param path the path where store the matrix
+   * @param minPartition the min num of partitions of the matrix to load in Spark
+   */
+  def loadBlockMatrixFile(sc: SparkContext, path: String, minPartition: Int = 4): BlockMatrix = {
+    if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://") && !path.startsWith("file://")) {
+      System.err.println("the path is not in local file System, HDFS or Tachyon")
+      System.exit(1)
+    }
+    val file = sc.textFile(path, minPartition)
+    val blocks = file.map(t =>{
+      val e = t.split(":")
+      val info = e(0).split("-")
+      val array = e(1).split(",").map(_.toDouble)
+      Block(new BlockID(info(0).toInt, info(1).toInt), new BDM[Double](info(2).toInt, info(3).toInt, array))
+    })
+    new BlockMatrix(blocks)
+  }
+
+  /**
    * Function to load matrix from a dictionary which contains many files to generate a Matrix
    *
    * @param sc the running SparkContext
    * @param path the path where store the matrix
    * @param minPartition the min num of partitions of the matrix to load in Spark
    */
-  def loadMatrixFiles(sc: SparkContext, path: String, minPartition: Int = 16): IndexMatrix = {
+  def loadMatrixFiles(sc: SparkContext, path: String, minPartition: Int = 4): IndexMatrix = {
     if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://") && !path.startsWith("file://")) {
       System.err.println("the path is not in local file System, HDFS or Tachyon")
       System.exit(1)
@@ -95,6 +119,31 @@ object MTUtils {
       })
     })
     new IndexMatrix(rows)
+  }
+
+  /**
+   * Function to load block matrix from a dictionary which contains many files to generate a Matrix
+   *
+   * @param sc the running SparkContext
+   * @param path the path where store the matrix
+   * @param minPartition the min num of partitions of the matrix to load in Spark
+   */
+  def loadBlockMatrixFiles(sc: SparkContext, path: String, minPartition: Int = 4): BlockMatrix = {
+    if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://") && !path.startsWith("file://")) {
+      System.err.println("the path is not in local file System, HDFS or Tachyon")
+      System.exit(1)
+    }
+    val file = sc.wholeTextFiles(path, minPartition)
+    val blocks = file.flatMap(t =>{
+      val blks = t._2.split("\n")
+      blks.map( b =>{
+        val e = b.split(":")
+        val info = e(0).split("-")
+        val array = e(1).split(",").map(_.toDouble)
+        Block(new BlockID(info(0).toInt, info(1).toInt), new BDM[Double](info(2).toInt, info(3).toInt, array))
+      })
+    })
+    new BlockMatrix(blocks)
   }
 
   /**

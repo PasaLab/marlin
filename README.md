@@ -19,13 +19,13 @@ We have already offered some examples in `edu.nju.pasalab.examples` to show how 
 	 --master <master-url> \
 	 --executor-memory <memory> \
 	 saury-assembly-0.1-SNAPSHOT.jar \
-	 <input file path A> <input file path B> <output file path> <block num>
+	 <input file path A> <input file path B> <output file path> <cores cross the cluster>
 
 **Notice:** Because the pre-built Spark-assembly jar doesn't have any files about netlib-java native compontent, which means you cannot use the native linear algebra library（e.g BLAS）to accelerate the computing, but have to use pure java to perform the small block matrix multiply in every worker. We have done some experiments and find it has a significant performance difference between the native BLAS computing and the pure java one, here you can find more info about the [performance comparison](https://github.com/PasaLab/saury/wiki/Performance-comparison-on-matrices-multiply) and [how to load native library](https://github.com/PasaLab/saury/wiki/How-to-load-native-linear-algebra-library).
 
 **Note:**`<input file path A>` is the file path contains the text-file format matrix. We recommand you put it in the hdfs, and in directory `data` we offer two matrix files, in which every row of matrix likes: `7:1,2,5,2.0,3.19,0,...` the `7` before `:` means this is the 8th row of this matrix (the row index starts from 0), and the numbers after `:` splited by `,` represent each column element in the row.
 
-**Note:** `<block num>` is the split nums of sub-matries, if you set it as `5`, which means you split every original large matrix into `5*5=25` blocks. In fact, this parameter is the degree of parallelism. The smaller this argument is, the bigger submatrix every worker will get. When doing experiments, we multiply two 20000 by 20000 matrix together, we set it as 5.         
+**Note:** `<cores cross the cluster>` is the num of cores you want to use. Moreover, the tasks num you apply in the application during every stage equals to this parameter. If this parameter set big, more small submatrices will be split, and more cores are used.
 
 ##Martix Operations API in Saury
 Currently, we have finished below APIs:

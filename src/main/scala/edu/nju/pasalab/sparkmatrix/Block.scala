@@ -14,6 +14,18 @@ case class Block(val blockID: BlockID, val matrix: BDM[Double]) extends Serializ
     blockID.column
   }
 
+  /**
+   * used when saveAsTextFile, format is
+   * 'blockID.row'-'blockID.column'-'matrix.rows'-'matrix.cols':'matrix.array'
+   * note that array in a matrix is column major
+   */
+  override def toString: String = {
+    val result = new StringBuilder(blockID.row + "-" + blockID.column
+      + "-" + matrix.rows + "-" + matrix.cols + ":")
+    result.append(matrix.data.mkString(","))
+    result.toString()
+  }
+
 }
 
 /**

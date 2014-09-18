@@ -93,7 +93,9 @@ class IndexMatrix(
 
     resultCols = other.numCols()
 
-    this.toBlockMatrix(blkNum, blkNum).multiply(other.toBlockMatrix(blkNum, blkNum))
+    val thisBlocks = this.toBlockMatrix(blkNum, blkNum)
+    val otherBlocks = other.toBlockMatrix(blkNum, blkNum)
+    thisBlocks.multiply(otherBlocks)
   }
 
   /**

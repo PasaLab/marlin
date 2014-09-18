@@ -168,11 +168,19 @@ class BlockMatrix(
   /**
    * Save the result to the HDFS
    *
-   * @param path the path to store the IndexMatrix in HDFS
+   * @param path the path to store in HDFS
+   * @param format if set "blockmatrix", it will store in the format of [[edu.nju.pasalab.sparkmatrix.BlockMatrix]]
+   *               , else it will store in the format of [[edu.nju.pasalab.sparkmatrix.IndexMatrix]]
    */
-  def saveToFileSystem(path: String){
-    this.toIndexmatrix().rows.saveAsTextFile(path)
+  def saveToFileSystem(path: String, format: String = ""){
+    if (format.toLowerCase.equals("blockmatrix")){
+      this.blocks.saveAsTextFile(path)
+    }else {
+      this.toIndexmatrix().rows.saveAsTextFile(path)
+    }
   }
+
+
 
 
   /**
