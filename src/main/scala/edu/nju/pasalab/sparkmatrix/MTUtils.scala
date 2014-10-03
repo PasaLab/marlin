@@ -2,6 +2,7 @@ package edu.nju.pasalab.sparkmatrix
 
 import breeze.linalg.{DenseMatrix => BDM}
 
+import org.apache.log4j.{Level, Logger}
 import org.apache.spark.SparkContext
 
 object MTUtils {
@@ -70,11 +71,13 @@ object MTUtils {
     val rows = file.map(t =>{
       val e = t.split(":")
       val rowIndex = e(0).toLong
-      val vec = Vectors.dense(e(1).split(",").map(_.toDouble))
+      val array = e(1).split(",").map(_.toDouble)
+      val vec = Vectors.dense(array)
       IndexRow(rowIndex,vec)
     })
     new IndexMatrix(rows)
   }
+
 
   /**
    * Function to load block matrix from file
@@ -89,12 +92,15 @@ object MTUtils {
       System.exit(1)
     }
     val file = sc.textFile(path, minPartition)
+    println("RDD length: " + file.count())
     val blocks = file.map(t =>{
-      val e = t.split(":")
-      val info = e(0).split("-")
-      val array = e(1).split(",").map(_.toDouble)
-      Block(new BlockID(info(0).toInt, info(1).toInt), new BDM[Double](info(2).toInt, info(3).toInt, array))
-    })
+        val e = t.split(":")
+//        Logger.getLogger(this.getClass).log(Level.INFO, "e length " + e.length)
+//        Logger.getLogger(this.getClass).log(Level.INFO, "e(0)  " + e(0).length + " " + e(0).charAt(0))
+        val info = e(0).split("-")
+        val array = e(1).split(",").map(_.toDouble)
+        (new BlockID(info(0).toInt, info(1).toInt), new BDM[Double](info(2).toInt, info(3).toInt, array))
+      })
     new BlockMatrix(blocks)
   }
 
@@ -140,7 +146,7 @@ object MTUtils {
         val e = b.split(":")
         val info = e(0).split("-")
         val array = e(1).split(",").map(_.toDouble)
-        Block(new BlockID(info(0).toInt, info(1).toInt), new BDM[Double](info(2).toInt, info(3).toInt, array))
+        (new BlockID(info(0).toInt, info(1).toInt), new BDM[Double](info(2).toInt, info(3).toInt, array))
       })
     })
     new BlockMatrix(blocks)

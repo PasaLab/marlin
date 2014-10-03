@@ -6,7 +6,7 @@ import scala.collection.mutable.ArrayBuffer
 
 import breeze.linalg.{DenseMatrix => BDM}
 
-import org.apache.log4j.{Level, Logger}
+import org.apache.log4j.{Logger, Level}
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 import org.apache.spark.rdd.RDD
@@ -20,6 +20,8 @@ class IndexMatrix(
     val rows: RDD[IndexRow],
     private var nRows: Long,
     private var nCols: Long) extends DistributedMatrix{
+
+
 
   private var resultCols:Long = 0
   def this(rows: RDD[IndexRow]) = this(rows, 0L, 0)
@@ -60,7 +62,7 @@ class IndexMatrix(
   }
 
   /**
-   * try to use CARMA, but currently we just change the split method
+   * refer to CARMA, implement the dimension-split ways
    *
    * @param other matrix to be multiplied, in the form of IndexMatrix
    * @param cores all the num of cores cross the cluster
@@ -73,8 +75,36 @@ class IndexMatrix(
     val (mSplitNum, kSplitNum, nSplitNum) = MTUtils.splitMethod(this.numRows(), this.numCols(), other.numCols(), cores)
     val thisCollects = this.toBlockMatrix(mSplitNum, kSplitNum)
     val otherCollects = other.toBlockMatrix(kSplitNum, nSplitNum)
-    thisCollects.multiply(otherCollects)
+    thisCollects.multiply(otherCollects, cores)
 
+  }
+
+
+  /**
+   * Multiply this matrix by a local matrix on the right.
+   *
+   * @param B a local matrix whose number of rows must match the number of columns of this matrix
+   * @return a [[edu.nju.pasalab.sparkmatrix.IndexMatrix]] representing the product,
+   * which preserves partitioning
+   */
+  def multiplyLocal(B: Matrix): IndexMatrix = {
+    val n = numCols().toInt
+    require(n == B.numRows, s"Dimension mismatch: $n vs ${B.numRows}")
+    require(B.isInstanceOf[DenseMatrix],
+      s"Only support dense matrix at this time but found ${B.getClass.getName}.")
+    val Bb = rows.context.broadcast(B)
+
+    val AB = rows.mapPartitions({ iter =>
+      val t0 = System.currentTimeMillis()
+      Logger.getLogger(this.getClass).log(Level.INFO, "start partitions multiply")
+      val Bi = Bb.value.toBreeze.asInstanceOf[BDM[Double]].t
+      val res = iter.map{v => IndexRow(v.index, Vectors.fromBreeze(Bi * v.vector.toBreeze))}
+      Logger.getLogger(this.getClass).log(Level.INFO, "finish partitions multiply, time use: "
+        + (System.currentTimeMillis() - t0) + "ms")
+      res
+    })
+
+    new IndexMatrix(AB, nRows, B.numCols)
   }
 
 
@@ -95,7 +125,7 @@ class IndexMatrix(
 
     val thisBlocks = this.toBlockMatrix(blkNum, blkNum)
     val otherBlocks = other.toBlockMatrix(blkNum, blkNum)
-    thisBlocks.multiply(otherBlocks)
+    thisBlocks.multiply(otherBlocks, blkNum * blkNum * blkNum)
   }
 
   /**
@@ -131,7 +161,7 @@ class IndexMatrix(
 
 
     //copy construct a IndexMatrix to maintain the original matrix
-    var matr = new IndexMatrix(rows.map( t => {
+    val matr = new IndexMatrix(rows.map( t => {
       val array = Array.ofDim[Double](numCols().toInt)
       val v = t.vector.toArray
       for ( k <- 0 until v.length){
@@ -141,7 +171,7 @@ class IndexMatrix(
 
     val num = iterations.toInt
 
-    var lowerMat = new IndexMatrix( this.rows.map( t => new IndexRow(t.index , Vectors.sparse(t.vector.size , Seq()))) )
+    val lowerMat = new IndexMatrix( this.rows.map( t => new IndexRow(t.index , Vectors.sparse(t.vector.size , Seq()))) )
 
     for (i <- 0 until num) {
      val vector = matr.rows.filter(t => t.index.toInt == i).map(t => t.vector).first()
@@ -159,17 +189,18 @@ class IndexMatrix(
 
       val broadLV = matr.rows.context.broadcast(updateVec)
 
-      val lresult = lowerMat.rows.map( t => {
+      lowerMat.rows.mapPartitions( iter => {
+        iter.map { t =>
         if ( t.index.toInt >= i) {
           val vec = t.vector.toArray
           vec.update(i, broadLV.value.apply(t.index.toInt))
           new IndexRow(t.index, Vectors.dense(vec))
         }else t
-      })
-      lowerMat = new IndexMatrix(lresult)
+      }}, true)
+      
       //cache the lower matrix to speed the compution
-      lowerMat.rows.cache()
-         val result = matr.rows.map(t => {
+         matr.rows.mapPartitions( iter =>{
+            iter.map(t => {
          if ( t.index.toInt > i){
           val vec = t.vector.toArray
           val lupdate = vec.apply(i)/c.value
@@ -180,12 +211,11 @@ class IndexMatrix(
            new IndexRow(t.index, Vectors.dense(vec))
          }
          else t
-        })
-      matr = new IndexMatrix(result)
+        })}, true)
 
       //cache the matrix to speed the compution
       matr.rows.cache()
-      if (i % 400 == 0)
+      if (i % 2000 == 0)
         matr.rows.checkpoint()
     }
 
@@ -207,7 +237,8 @@ class IndexMatrix(
     val result = this.rows
       .map(t => (t.index, t.vector))
       .join(other.rows.map(t => (t.index, t.vector)))
-      .map(t => IndexRow(t._1, Vectors.fromBreeze(t._2._1.toBreeze + t._2._2.toBreeze)))
+      .map(t => IndexRow(t._1, Vectors.fromBreeze(t._2._1.toBreeze.asInstanceOf[breeze.linalg.Vector[Double]]
+        + t._2._2.toBreeze.asInstanceOf[breeze.linalg.Vector[Double]])))
     new IndexMatrix(result)
   }
 
@@ -343,98 +374,6 @@ class IndexMatrix(
     this.rows.saveAsTextFile(path)
   }
 
-//  /**
-//   * function used in multiply
-//   */
-//  private [sparkmatrix] def collectTable(matrix: IndexMatrix, blckkNum: Int, matrixPos: Boolean)
-//  :RDD[(BlockID, BDM[Double])] = {
-//    //val log = Logger.getLogger(this.getClass)
-//    val mRows = matrix.numRows().toInt
-//    val mColumns = matrix.numCols().toInt
-//    val mBlockRowSize = math.ceil(mRows.toDouble / blckkNum.toDouble).toInt
-//    val mBlockColSize = math.ceil(mColumns.toDouble / blckkNum.toDouble).toInt
-//    //get subVector according to34 the column size and is keyed by the blockID
-//    matrix.rows.flatMap( t =>{
-//        var startColumn = 0
-//        var endColumn = 0
-//        var arrayBuf= new ArrayBuffer[(BlockID, IndexRow)]
-//
-//        val elems = t.vector.toArray
-//        var i = 0
-//        while(endColumn < (mColumns -1)) {
-//          startColumn = i * mBlockColSize
-//          endColumn = startColumn + mBlockColSize - 1
-//          if (endColumn >= mColumns) {
-//            endColumn = mColumns - 1
-//          }
-//
-//          val vector = new Array[Double](endColumn - startColumn + 1)
-//          for (j <- startColumn to endColumn) {
-//            vector(j - startColumn) = elems(j)
-//          }
-//
-//          arrayBuf += ((new BlockID(t.index.toInt / mBlockRowSize, i),new IndexRow(t.index,Vectors.dense(vector))))
-//          i += 1
-//        }
-//        arrayBuf})
-//      .groupByKey()
-//      //emit the block according to the new BlockID
-//      .flatMap(input => {
-//        val colBase = input._1.column * mBlockColSize
-//        val rowBase = input._1.row * mBlockRowSize
-//
-//        //the block's size: rows & columns
-//        var smRows = mBlockRowSize
-//        if ((rowBase + mBlockRowSize - 1) >= mRows) {
-//          smRows = mRows - rowBase
-//        }
-//
-//        var smCols = mBlockColSize
-//        if ((colBase + mBlockColSize - 1) >= mColumns) {
-//           smCols = mColumns - colBase
-//        }
-//
-//        val itr = input._2.iterator
-//        //to generate the local matrix, be careful, the array is column major
-//        val array = Array.ofDim[Double](smRows * smCols)
-//
-//        while (itr.hasNext) {
-//          val vec = itr.next()
-//          if (vec.vector.size != smCols) {
-//            Logger.getLogger(this.getClass).log(Level.ERROR,"vectors:  "+ input._2+"Block Column Size dismatched" )
-//            throw new IOException("Block Column Size dismatched")
-//          }
-//
-//          val rowOffset = vec.index.toInt - rowBase
-//          if (rowOffset >= smRows || rowOffset < 0) {
-//            Logger.getLogger(this.getClass).log(Level.ERROR,"Block Row Size dismatched" )
-//            throw new IOException("Block Row Size dismatched")
-//          }
-//
-//          val tmp = vec.vector.toArray
-//          for (i <- 0 until tmp.length) {
-//            array(i * smRows + rowOffset) = tmp(i)
-//          }
-//        }
-//
-//        val subMatrix = new BDM(smRows, smCols, array)
-//        var arrayBuf = new ArrayBuffer[(BlockID , BDM[Double])]
-//        if (matrixPos) {
-//          for (x <- 0 to blckkNum - 1) {
-//            val r: Int = input._1.row * blckkNum * blckkNum
-//            val seq: Int = x * blckkNum + input._1.column + r
-//            arrayBuf += ((new BlockID( input._1.row, x, seq), subMatrix))
-//          }
-//        }else{
-//          for (x <- 0 to blckkNum - 1) {
-//            val seq = x * blckkNum * blckkNum + input._1.column * blckkNum + input._1.row
-//            arrayBuf += ((new BlockID(x, input._1.column, seq), subMatrix))
-//          }
-//        }
-//        arrayBuf
-//    })
-//  }
-
   /**
    * transform the IndexMatrix to BlockMatrix
    *
@@ -448,72 +387,74 @@ class IndexMatrix(
     val mColumns = this.numCols().toInt
     val mBlockRowSize = math.ceil(mRows.toDouble / numByRow.toDouble).toInt
     val mBlockColSize = math.ceil(mColumns.toDouble / numByCol.toDouble).toInt
-    val result = rows.flatMap( t => {
-      var startColumn = 0
-      var endColumn = 0
-      var arrayBuf= new ArrayBuffer[(BlockID, IndexRow)]
+    val result = rows.mapPartitions(iter => {
+      iter.flatMap( t => {
+        var startColumn = 0
+        var endColumn = 0
+        var arrayBuf= new ArrayBuffer[(BlockID, IndexRow)]
 
-      val elems = t.vector.toArray
-      var i = 0
-      while(endColumn < (mColumns -1)) {
-        startColumn = i * mBlockColSize
-        endColumn = startColumn + mBlockColSize - 1
-        if (endColumn >= mColumns) {
-          endColumn = mColumns - 1
+        val elems = t.vector.toArray
+        var i = 0
+        while(endColumn < (mColumns -1)) {
+          startColumn = i * mBlockColSize
+          endColumn = startColumn + mBlockColSize - 1
+          if (endColumn >= mColumns) {
+            endColumn = mColumns - 1
+          }
+
+          val vector = new Array[Double](endColumn - startColumn + 1)
+          for (j <- startColumn to endColumn) {
+            vector(j - startColumn) = elems(j)
+          }
+
+          arrayBuf += ((new BlockID(t.index.toInt / mBlockRowSize, i),new IndexRow(t.index,Vectors.dense(vector))))
+          i += 1
         }
-
-        val vector = new Array[Double](endColumn - startColumn + 1)
-        for (j <- startColumn to endColumn) {
-          vector(j - startColumn) = elems(j)
-        }
-
-        arrayBuf += ((new BlockID(t.index.toInt / mBlockRowSize, i),new IndexRow(t.index,Vectors.dense(vector))))
-        i += 1
-      }
-      arrayBuf
-    })
+        arrayBuf
+      })})
       .groupByKey()
-      .map(input => {
-      val colBase = input._1.column * mBlockColSize
-      val rowBase = input._1.row * mBlockRowSize
+      .mapPartitions( a => { a.map(
+      input => {
+        val colBase = input._1.column * mBlockColSize
+        val rowBase = input._1.row * mBlockRowSize
 
-      //the block's size: rows & columns
-      var smRows = mBlockRowSize
-      if ((rowBase + mBlockRowSize - 1) >= mRows) {
-        smRows = mRows - rowBase
-      }
-
-      var smCols = mBlockColSize
-      if ((colBase + mBlockColSize - 1) >= mColumns) {
-        smCols = mColumns - colBase
-      }
-
-      val itr = input._2.iterator
-      //to generate the local matrix, be careful, the array is column major
-      val array = Array.ofDim[Double](smRows * smCols)
-
-      while (itr.hasNext) {
-        val vec = itr.next()
-        if (vec.vector.size != smCols) {
-          Logger.getLogger(this.getClass).log(Level.ERROR,"vectors:  "+ input._2+"Block Column Size dismatched" )
-          throw new IOException("Block Column Size dismatched")
+        //the block's size: rows & columns
+        var smRows = mBlockRowSize
+        if ((rowBase + mBlockRowSize - 1) >= mRows) {
+          smRows = mRows - rowBase
         }
 
-        val rowOffset = vec.index.toInt - rowBase
-        if (rowOffset >= smRows || rowOffset < 0) {
-          Logger.getLogger(this.getClass).log(Level.ERROR,"Block Row Size dismatched" )
-          throw new IOException("Block Row Size dismatched")
+        var smCols = mBlockColSize
+        if ((colBase + mBlockColSize - 1) >= mColumns) {
+          smCols = mColumns - colBase
         }
 
-        val tmp = vec.vector.toArray
-        for (i <- 0 until tmp.length) {
-          array(i * smRows + rowOffset) = tmp(i)
-        }
-      }
+        val itr = input._2.iterator
+        //to generate the local matrix, be careful, the array is column major
+        val array = Array.ofDim[Double](smRows * smCols)
 
-      val subMatrix = new BDM(smRows, smCols, array)
-      new Block(input._1, subMatrix)
-    })
+        while (itr.hasNext) {
+          val vec = itr.next()
+          if (vec.vector.size != smCols) {
+            Logger.getLogger(this.getClass).log(Level.ERROR,"vectors:  "+ input._2+"Block Column Size dismatched" )
+            throw new IOException("Block Column Size dismatched")
+          }
+
+          val rowOffset = vec.index.toInt - rowBase
+          if (rowOffset >= smRows || rowOffset < 0) {
+            Logger.getLogger(this.getClass).log(Level.ERROR,"Block Row Size dismatched" )
+            throw new IOException("Block Row Size dismatched")
+          }
+
+          val tmp = vec.vector.toArray
+          for (i <- 0 until tmp.length) {
+            array(i * smRows + rowOffset) = tmp(i)
+          }
+        }
+
+        val subMatrix = new BDM(smRows, smCols, array)
+        (input._1, subMatrix)
+      })}, true)
 
     new BlockMatrix(result, numRows(), numCols(), numByRow, numByCol)
   }

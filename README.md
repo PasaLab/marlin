@@ -19,13 +19,13 @@ We have already offered some examples in `edu.nju.pasalab.examples` to show how 
 	 --master <master-url> \
 	 --executor-memory <memory> \
 	 saury-assembly-0.1-SNAPSHOT.jar \
-	 <input file path A> <input file path B> <output file path> <cores cross the cluster>
+	 <input file path A> <input file path B> <cores cross the cluster> <file partitions> <tasks nums>
 
-**Notice:** Because the pre-built Spark-assembly jar doesn't have any files about netlib-java native compontent, which means you cannot use the native linear algebra library（e.g BLAS）to accelerate the computing, but have to use pure java to perform the small block matrix multiply in every worker. We have done some experiments and find it has a significant performance difference between the native BLAS computing and the pure java one, here you can find more info about the [performance comparison](https://github.com/PasaLab/saury/wiki/Performance-comparison-on-matrices-multiply) and [how to load native library](https://github.com/PasaLab/saury/wiki/How-to-load-native-linear-algebra-library).
+**Notice:** Because the pre-built Spark-assembly jar doesn't have any files about netlib-java native compontent, which means you cannot use the native linear algebra library e.g BLAS to accelerate the computing, but have to use pure java to perform the small block matrix multiply in every worker. We have done some experiments and find it has a significant performance difference between the native BLAS computing and the pure java one, here you can find more info about the [performance comparison](https://github.com/PasaLab/saury/wiki/Performance-comparison-on-matrices-multiply) and [how to load native library](https://github.com/PasaLab/saury/wiki/How-to-load-native-linear-algebra-library).
 
 **Note:**`<input file path A>` is the file path contains the text-file format matrix. We recommand you put it in the hdfs, and in directory `data` we offer two matrix files, in which every row of matrix likes: `7:1,2,5,2.0,3.19,0,...` the `7` before `:` means this is the 8th row of this matrix (the row index starts from 0), and the numbers after `:` splited by `,` represent each column element in the row.
 
-**Note:** `<cores cross the cluster>` is the num of cores you want to use. Moreover, the tasks num you apply in the application during every stage equals to this parameter. If this parameter set big, more small submatrices will be split, and more cores are used.
+**Note:** `<cores cross the cluster>` is the num of cores you want to use. Moreover, you can set `<file partitions>` to set partition num when loading from fileSystem, `<task nums>` define the task nums at each stage.
 
 ##Martix Operations API in Saury
 Currently, we have finished below APIs:
@@ -90,9 +90,9 @@ We have done some performance evaluation of Saury. It can be seen [here](https:/
 ##The relationship between Saury and MLlib Matrix
 [MLlib](http://spark.apache.org/docs/latest/mllib-guide.html) contains quite a lot of general representations of Matrix. Saury extends some of them and provides the distributed manipulation for the matrices.
 
-We override class `IndexedRow` in [MLlib](http://spark.apache.org/docs/latest/mllib-guide.html)，it is still a `(Long, Vector)` wraper, usage is the same as `IndexedRow` .
+We override class `IndexedRow` in [MLlib](http://spark.apache.org/docs/latest/mllib-guide.html)it is still a `(Long, Vector)` wraper, usage is the same as `IndexedRow` .
 
-We override class `IndexedRowMatrix` in [MLlib](http://spark.apache.org/docs/latest/mllib-guide.html)，from `RDD[IndexedRow]` to `RDD[IndexRow]`， usage is the same as `IndexedRowMatrix` . Moreover, you can transfom a local `Array[Array[Double]]` to a `IndexMatrix` by using `new IndexMatrix(sc, array)` method.
+We override class `IndexedRowMatrix` in [MLlib](http://spark.apache.org/docs/latest/mllib-guide.html)from `RDD[IndexedRow]` to `RDD[IndexRow]`the usage is the same as `IndexedRowMatrix` . Moreover, you can transfom a local `Array[Array[Double]]` to a `IndexMatrix` by using `new IndexMatrix(sc, array)` method.
 
 We create class `BlockMatrix` from `RDD[Block]` where `Block` is a wraper of `(BlockID, BDM[Double])` (here, BDM is short for `breeze.linalg.DenseMatrix`).
 
