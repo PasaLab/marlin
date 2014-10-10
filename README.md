@@ -1,33 +1,33 @@
-Saury
+Marlin
 ============
 
 A distributed matrix operations library build on top of [Spark](http://spark.apache.org/). Now, the master branch is in version 0.1-SNAPSHOT.  
 
 ##Prerequisites
-As Saury is built on top of Spark, you need to get the Spark installed first.  If you are not clear how to setup Spark, please refer to the guidelines [here](http://spark.apache.org/docs/latest/). Currently, Saury is developed on the APIs of Spark 1.0.x version.
+As Marlin is built on top of Spark, you need to get the Spark installed first.  If you are not clear how to setup Spark, please refer to the guidelines [here](http://spark.apache.org/docs/latest/). Currently, Marlin is developed on the APIs of Spark 1.0.x version.
 
-##Compile Saury
+##Compile Marlin
 We have offered a default `build.sbt` file, make sure you have installed [sbt](http://www.scala-sbt.org/), and you can just type `sbt assembly` to get a assembly jar.
 
 **Note:** In `build.sbt` file, the default Spark Version is 1.0.1, and the default Hadoop version is 2.3.0, you can modify the `build.sbt` file to fit your environment.   
 
-##Run Saury
+##Run Marlin
 We have already offered some examples in `edu.nju.pasalab.examples` to show how to use the APIs in the project. For example, if you want to run two large matrices multiplication, use spark-submit method, and type in command
  
 	$.bin/spark-submit \
 	 --class edu.nju.pasalab.examples.MatrixMultiply
 	 --master <master-url> \
 	 --executor-memory <memory> \
-	 saury-assembly-0.1-SNAPSHOT.jar \
+	 marlin-assembly-0.1-SNAPSHOT.jar \
 	 <input file path A> <input file path B> <cores cross the cluster> <file partitions> <tasks nums>
 
-**Notice:** Because the pre-built Spark-assembly jar doesn't have any files about netlib-java native compontent, which means you cannot use the native linear algebra library e.g BLAS to accelerate the computing, but have to use pure java to perform the small block matrix multiply in every worker. We have done some experiments and find it has a significant performance difference between the native BLAS computing and the pure java one, here you can find more info about the [performance comparison](https://github.com/PasaLab/saury/wiki/Performance-comparison-on-matrices-multiply) and [how to load native library](https://github.com/PasaLab/saury/wiki/How-to-load-native-linear-algebra-library).
+**Notice:** Because the pre-built Spark-assembly jar doesn't have any files about netlib-java native compontent, which means you cannot use the native linear algebra library e.g BLAS to accelerate the computing, but have to use pure java to perform the small block matrix multiply in every worker. We have done some experiments and find it has a significant performance difference between the native BLAS computing and the pure java one, here you can find more info about the [performance comparison](https://github.com/PasaLab/marlin/wiki/Performance-comparison-on-matrices-multiply) and [how to load native library](https://github.com/PasaLab/marlin/wiki/How-to-load-native-linear-algebra-library).
 
 **Note:**`<input file path A>` is the file path contains the text-file format matrix. We recommand you put it in the hdfs, and in directory `data` we offer two matrix files, in which every row of matrix likes: `7:1,2,5,2.0,3.19,0,...` the `7` before `:` means this is the 8th row of this matrix (the row index starts from 0), and the numbers after `:` splited by `,` represent each column element in the row.
 
 **Note:** `<cores cross the cluster>` is the num of cores you want to use. Moreover, you can set `<file partitions>` to set partition num when loading from fileSystem, `<task nums>` define the task nums at each stage.
 
-##Martix Operations API in Saury
+##Martix Operations API in Marlin
 Currently, we have finished below APIs:
 <table>
 	<tr>
@@ -82,13 +82,13 @@ Currently, we have finished below APIs:
 
 ##Algorithms and Performance Evaluation
 ###Algorithms
-Currently,  we implement the matrix manipulation on Spark with [block matrix parallel algorithms](http://en.wikipedia.org/wiki/Block_matrix#Block_matrix_multiplication) to distribute large scale matrix computation among cluster nodes. The details of the matrix multiplication algorithm is [here](https://github.com/PasaLab/saury/wiki/Matrix-multiply-algorithm).
+Currently,  we implement the matrix manipulation on Spark with [block matrix parallel algorithms](http://en.wikipedia.org/wiki/Block_matrix#Block_matrix_multiplication) to distribute large scale matrix computation among cluster nodes. The details of the matrix multiplication algorithm is [here](https://github.com/PasaLab/marlin/wiki/Matrix-multiply-algorithm).
 
 ###Performance Evaluation
-We have done some performance evaluation of Saury. It can be seen [here](https://github.com/PasaLab/saury/wiki/Performance-comparison-on-matrices-multiply). We wiil update the wiki page when more results are carried out.
+We have done some performance evaluation of Marlin. It can be seen [here](https://github.com/PasaLab/marlin/wiki/Performance-comparison-on-matrices-multiply). We wiil update the wiki page when more results are carried out.
 
-##The relationship between Saury and MLlib Matrix
-[MLlib](http://spark.apache.org/docs/latest/mllib-guide.html) contains quite a lot of general representations of Matrix. Saury extends some of them and provides the distributed manipulation for the matrices.
+##The relationship between Marlin and MLlib Matrix
+[MLlib](http://spark.apache.org/docs/latest/mllib-guide.html) contains quite a lot of general representations of Matrix. Marlin extends some of them and provides the distributed manipulation for the matrices.
 
 We override class `IndexedRow` in [MLlib](http://spark.apache.org/docs/latest/mllib-guide.html)it is still a `(Long, Vector)` wraper, usage is the same as `IndexedRow` .
 
