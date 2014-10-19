@@ -2,7 +2,7 @@ package edu.nju.pasalab.examples
 
 import org.apache.spark.{SparkContext, SparkConf}
 
-import edu.nju.pasalab.sparkmatrix.{MTUtils, IndexMatrix}
+import edu.nju.pasalab.sparkmatrix.{MTUtils, DenseVecMatrix}
 
 /**
  * Test method matrixToArray in [[edu.nju.pasalab.sparkmatrix.MTUtils]]
@@ -20,7 +20,7 @@ object InitMatrix {
        }
       array(i) = a
     }
-    val mat = new IndexMatrix(sc, array)
+    val mat = new DenseVecMatrix(sc, array)
     println("row 11 to 12")
     println( mat.sliceByRow(11,12).rows.take(1).apply(0)  )
     println("row 997 to 998")
