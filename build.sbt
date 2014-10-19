@@ -2,9 +2,9 @@ import AssemblyKeys._
 
 assemblySettings
 
-name := "saury"
+name := "marlin"
 
-version := "0.1-SNAPSHOT"
+version := "0.2-SNAPSHOT"
 
 scalaVersion := "2.10.4"
 

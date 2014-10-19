@@ -91,7 +91,7 @@ object Matrices {
    * @param breeze a breeze matrix
    * @return a Matrix instance
    */
-  private[sparkmatrix] def fromBreeze(breeze: BM[Double]): Matrix = {
+   def fromBreeze(breeze: BM[Double]): Matrix = {
     breeze match {
       case dm: BDM[Double] =>
         require(dm.majorStride == dm.rows,

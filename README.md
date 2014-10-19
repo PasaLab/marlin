@@ -1,7 +1,7 @@
 Marlin
 ============
 
-A distributed matrix operations library build on top of [Spark](http://spark.apache.org/). Now, the master branch is in version 0.1-SNAPSHOT.  
+A distributed matrix operations library build on top of [Spark](http://spark.apache.org/). Now, the master branch is in version 0.2-SNAPSHOT.  
 
 ##Prerequisites
 As Marlin is built on top of Spark, you need to get the Spark installed first.  If you are not clear how to setup Spark, please refer to the guidelines [here](http://spark.apache.org/docs/latest/). Currently, Marlin is developed on the APIs of Spark 1.0.x version.
@@ -18,14 +18,14 @@ We have already offered some examples in `edu.nju.pasalab.examples` to show how 
 	 --class edu.nju.pasalab.examples.MatrixMultiply
 	 --master <master-url> \
 	 --executor-memory <memory> \
-	 marlin-assembly-0.1-SNAPSHOT.jar \
-	 <input file path A> <input file path B> <cores cross the cluster> <file partitions> <tasks nums>
+	 marlin-assembly-0.2-SNAPSHOT.jar \
+	 <input file path A> <input file path B> <cores cross the cluster> 
 
 **Notice:** Because the pre-built Spark-assembly jar doesn't have any files about netlib-java native compontent, which means you cannot use the native linear algebra library e.g BLAS to accelerate the computing, but have to use pure java to perform the small block matrix multiply in every worker. We have done some experiments and find it has a significant performance difference between the native BLAS computing and the pure java one, here you can find more info about the [performance comparison](https://github.com/PasaLab/marlin/wiki/Performance-comparison-on-matrices-multiply) and [how to load native library](https://github.com/PasaLab/marlin/wiki/How-to-load-native-linear-algebra-library).
 
 **Note:**`<input file path A>` is the file path contains the text-file format matrix. We recommand you put it in the hdfs, and in directory `data` we offer two matrix files, in which every row of matrix likes: `7:1,2,5,2.0,3.19,0,...` the `7` before `:` means this is the 8th row of this matrix (the row index starts from 0), and the numbers after `:` splited by `,` represent each column element in the row.
 
-**Note:** `<cores cross the cluster>` is the num of cores you want to use. Moreover, you can set `<file partitions>` to set partition num when loading from fileSystem, `<task nums>` define the task nums at each stage.
+**Note:** `<cores cross the cluster>` is the num of cores across the cluster you want to use. 
 
 ##Martix Operations API in Marlin
 Currently, we have finished below APIs:
@@ -90,10 +90,10 @@ We have done some performance evaluation of Marlin. It can be seen [here](https:
 ##The relationship between Marlin and MLlib Matrix
 [MLlib](http://spark.apache.org/docs/latest/mllib-guide.html) contains quite a lot of general representations of Matrix. Marlin extends some of them and provides the distributed manipulation for the matrices.
 
-We override class `IndexedRow` in [MLlib](http://spark.apache.org/docs/latest/mllib-guide.html)it is still a `(Long, Vector)` wraper, usage is the same as `IndexedRow` .
+We override class `IndexedRow` in [MLlib](http://spark.apache.org/docs/latest/mllib-guide.html), it is still a `(Long, Vector)` wraper, usage is the same as `IndexedRow` .
 
-We override class `IndexedRowMatrix` in [MLlib](http://spark.apache.org/docs/latest/mllib-guide.html)from `RDD[IndexedRow]` to `RDD[IndexRow]`the usage is the same as `IndexedRowMatrix` . Moreover, you can transfom a local `Array[Array[Double]]` to a `IndexMatrix` by using `new IndexMatrix(sc, array)` method.
+We override class `DenseVecMatrix` from `IndexedRowMatrix` in [MLlib](http://spark.apache.org/docs/latest/mllib-guide.html) from `RDD[IndexedRow]` to `RDD[IndexRow]`the usage is the same as `IndexedRowMatrix` . Moreover, you can transfom a local `Array[Array[Double]]` to a `IndexMatrix` by using `new DenseVecMatrix(sc, array)` method.
 
-We create class `BlockMatrix` from `RDD[Block]` where `Block` is a wraper of `(BlockID, BDM[Double])` (here, BDM is short for `breeze.linalg.DenseMatrix`).
+We create class `BlockMatrix` from `RDD[(BlockID, BDM[Double])]`  (here, BDM is short for `breeze.linalg.DenseMatrix`).
 
 The MTUtils can load file-format matrix from hdfs and [tachyon](http://tachyon-project.org/), with `loadMatrixFile(sc: SparkContext, path: String, minPatition: Int = 3)` method

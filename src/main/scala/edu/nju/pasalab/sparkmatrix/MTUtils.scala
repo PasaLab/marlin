@@ -26,19 +26,20 @@ object MTUtils {
     var _k = k
     var _n = n
     var _cores = cores
+    val factor = 2
     while (_cores > 1 && _m > 1 && _k > 1 && _n > 1) {
       if (dimToSplit(_m, _k, _n) == 1) {
-        nSplitNum *= 2
-        _n /= 2
-        _cores /= 2
+        nSplitNum *= factor
+        _n /= factor
+        _cores /= factor
       } else if (dimToSplit(_m, _k, _n) == 2) {
-        mSplitNum *= 2
-        _m /= 2
-        _cores /= 2
+        mSplitNum *= factor
+        _m /= factor
+        _cores /= factor
       } else {
-        kSplitNum *= 2
-        _k /= 2
-        _cores /= 2
+        kSplitNum *= factor
+        _k /= factor
+        _cores /= factor
       }
     }
     (mSplitNum, kSplitNum, nSplitNum)
@@ -62,7 +63,7 @@ object MTUtils {
    * @param path the path where store the matrix
    * @param minPartition the min num of partitions of the matrix to load in Spark
    */
-  def loadMatrixFile(sc: SparkContext, path: String, minPartition: Int = 4): IndexMatrix = {
+  def loadMatrixFile(sc: SparkContext, path: String, minPartition: Int = 4): DenseVecMatrix = {
     if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://") && !path.startsWith("file://")) {
       System.err.println("the path is not in local file System, HDFS or Tachyon")
       System.exit(1)
@@ -75,7 +76,7 @@ object MTUtils {
       val vec = Vectors.dense(array)
       IndexRow(rowIndex,vec)
     })
-    new IndexMatrix(rows)
+    new DenseVecMatrix(rows)
   }
 
 
@@ -111,7 +112,7 @@ object MTUtils {
    * @param path the path where store the matrix
    * @param minPartition the min num of partitions of the matrix to load in Spark
    */
-  def loadMatrixFiles(sc: SparkContext, path: String, minPartition: Int = 4): IndexMatrix = {
+  def loadMatrixFiles(sc: SparkContext, path: String, minPartition: Int = 4): DenseVecMatrix = {
     if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://") && !path.startsWith("file://")) {
       System.err.println("the path is not in local file System, HDFS or Tachyon")
       System.exit(1)
@@ -124,7 +125,7 @@ object MTUtils {
         IndexRow( content(0).toLong, Vectors.dense( content(1).split(",").map(_.toDouble) ))
       })
     })
-    new IndexMatrix(rows)
+    new DenseVecMatrix(rows)
   }
 
   /**
@@ -159,8 +160,8 @@ object MTUtils {
    * @param array the two dimension Double array
    * @param partitions the default num of partitions when you create an RDD, you can set it by yourself
    */
-  def arrayToMatrix(sc:SparkContext , array: Array[Array[Double]] , partitions: Int = 2): IndexMatrix ={
-    new IndexMatrix( sc.parallelize(array.zipWithIndex.
+  def arrayToMatrix(sc:SparkContext , array: Array[Array[Double]] , partitions: Int = 2): DenseVecMatrix ={
+    new DenseVecMatrix( sc.parallelize(array.zipWithIndex.
       map{ case(t,i)  => IndexRow(i, Vectors.dense(t)) },partitions) )
   }
 
@@ -172,7 +173,7 @@ object MTUtils {
    * @param mat the IndexMatrix to be transformed
    */
 
-  def matrixToArray(mat: IndexMatrix ): Array[Array[Double]] ={
+  def matrixToArray(mat: DenseVecMatrix ): Array[Array[Double]] ={
     val arr = Array.ofDim[Double](mat.numRows().toInt, mat.numCols().toInt)
     mat.rows.collect().foreach( t => t.vector.toArray.copyToArray(arr(t.index.toInt)) )
     arr

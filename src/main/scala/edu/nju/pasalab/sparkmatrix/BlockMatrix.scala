@@ -6,6 +6,7 @@ import org.apache.spark.HashPartitioner
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext._
 
+
 /**
  * BlockMatrix representing several [[breeze.linalg.DenseMatrix]] make up the matrix
  * with BlockID
@@ -94,55 +95,132 @@ class BlockMatrix(
     val kSplitNum = this.numBlksByCol()
     //num of columns to be split of that matrix
     val nSplitNum = other.numBlksByCol()
-
     val partitioner = new HashPartitioner(parallelism)
-    val thisEmitBlocks = blocks.mapPartitions({ iter =>
-      iter.flatMap(t => {
-        val array = Array.ofDim[(BlockID, BDM[Double])](nSplitNum)
-        for (i <- 0 until nSplitNum) {
-          val seq = t._1.row * nSplitNum * kSplitNum + i * kSplitNum + t._1.column
-          array(i) = (new BlockID(t._1.row, i, seq), t._2)
-        }
-        array
-      })
-    }).partitionBy(partitioner).persist()
-
-    val otherEmitBlocks = other.blocks.mapPartitions( { iter =>
-      iter.flatMap( t =>{
-        val array = Array.ofDim[(BlockID, BDM[Double])](mSplitNum)
-        for (i <- 0 until mSplitNum){
-          val seq = i * nSplitNum * kSplitNum + t._1.column * kSplitNum + t._1.row
-          array(i) = (new BlockID(i, t._1.column, seq), t._2)
-        }
-        array
-      })
-    }).partitionBy(partitioner).persist()
-
-    if ( kSplitNum != 1) {
-      val result = thisEmitBlocks.join(otherEmitBlocks)
-        .mapPartitions({iter =>
-        iter.map{ t =>
+    if  (mSplitNum == 1 && nSplitNum == 1){
+      val result = blocks.join(other.blocks)
+        .mapPartitions({ iter =>
+        iter.map { t =>
           val b1 = t._2._1.asInstanceOf[BDM[Double]]
           val b2 = t._2._2.asInstanceOf[BDM[Double]]
           val c = (b1 * b2).asInstanceOf[BDM[Double]]
           (new BlockID(t._1.row, t._1.column), c)
-        }}).partitionBy(partitioner).persist().reduceByKey( _ + _ )
+        }
+      }).partitionBy(partitioner).persist().reduceByKey(_ + _)
       new BlockMatrix(result, this.numRows(), other.numCols(), mSplitNum, nSplitNum)
-    }else{
-      val result = thisEmitBlocks.join(otherEmitBlocks)
-        .mapValues(t => (t._1.asInstanceOf[BDM[Double]] * t._2.asInstanceOf[BDM[Double]])
-        .asInstanceOf[BDM[Double]])
-      new BlockMatrix(result, this.numRows(), other.numCols(), mSplitNum, nSplitNum)
+    }else {
+
+      val thisEmitBlocks = blocks.mapPartitions({ iter =>
+        iter.flatMap(t => {
+          val array = Array.ofDim[(BlockID, BDM[Double])](nSplitNum)
+          for (i <- 0 until nSplitNum) {
+            val seq = t._1.row * nSplitNum * kSplitNum + i * kSplitNum + t._1.column
+            array(i) = (new BlockID(t._1.row, i, seq), t._2)
+          }
+          array
+        })
+      }).partitionBy(partitioner).cache()
+//      println("this emit blocks partitioner" + thisEmitBlocks.partitioner)
+      val otherEmitBlocks = other.blocks.mapPartitions({ iter =>
+        iter.flatMap(t => {
+          val array = Array.ofDim[(BlockID, BDM[Double])](mSplitNum)
+          for (i <- 0 until mSplitNum) {
+            val seq = i * nSplitNum * kSplitNum + t._1.column * kSplitNum + t._1.row
+            array(i) = (new BlockID(i, t._1.column, seq), t._2)
+          }
+          array
+        })
+      }).partitionBy(partitioner).cache()
+//      println("other emit blocks partitioner" + otherEmitBlocks.partitioner)
+      if (kSplitNum != 1) {
+        val result = thisEmitBlocks.join(otherEmitBlocks)
+          .mapPartitions({ iter =>
+          iter.map { t =>
+            val b1 = t._2._1.asInstanceOf[BDM[Double]]
+            val b2 = t._2._2.asInstanceOf[BDM[Double]]
+            val c = (b1 * b2).asInstanceOf[BDM[Double]]
+            (new BlockID(t._1.row, t._1.column), c)
+          }
+        }).partitionBy(partitioner).persist().reduceByKey(_ + _)
+        new BlockMatrix(result, this.numRows(), other.numCols(), mSplitNum, nSplitNum)
+      } else {
+        val result = thisEmitBlocks.join(otherEmitBlocks)
+          .mapValues(t => (t._1.asInstanceOf[BDM[Double]] * t._2.asInstanceOf[BDM[Double]])
+          .asInstanceOf[BDM[Double]])
+        new BlockMatrix(result, this.numRows(), other.numCols(), mSplitNum, nSplitNum)
+      }
     }
   }
 
 
   /**
+   * Using spark-property broadcast to decrease time used in the matrix-matrix multiplication
+   * @param other other matrix to be multiplied
+   * @return
+   */
+  def multiplyBroadcast(other: BlockMatrix, parallelism: Int, splits:(Int, Int, Int), mode: String): BlockMatrix = {
+    val bArr = if (mode.toLowerCase.equals("broadcastb")) {
+      val subBlocks = other.blocks.collect()
+      val blocksArray =  Array.ofDim[BDM[Double]](other.blksByRow, other.blksByCol)
+      for (s <- subBlocks) {
+        blocksArray(s._1.row)(s._1.column) = s._2
+      }
+      blocks.context.broadcast(blocksArray)
+    }else {
+      val subBlocks = blocks.collect()
+      val blocksArray = Array.ofDim[BDM[Double]](blksByRow, blksByCol)
+      for (s <- subBlocks) {
+        blocksArray(s._1.row)(s._1.column) = s._2
+      }
+      blocks.context.broadcast(blocksArray)
+    }
+
+      if (splits._2 == 1) {
+        val result = blocks.mapPartitions(iter => {
+          val res = Array.ofDim[(BlockID, BDM[Double])](other.blksByCol)
+          val mats = bArr.value
+          iter.flatMap(t => {
+            for (j <- 0 until other.blksByCol) {
+              if (mode.toLowerCase.equals("broadcastb")) {
+                res(j) = (new BlockID(t._1.row, j),
+                  (t._2 * mats(t._1.column)(j)).asInstanceOf[BDM[Double]])
+              }else {
+                res(j) = (new BlockID(t._1.row, j),
+                  (mats(t._1.column)(j) * t._2).asInstanceOf[BDM[Double]])
+              }
+            }
+            res
+          })
+        })
+        new BlockMatrix(result, this.numRows(), other.numCols(),
+          this.numBlksByRow(), other.numBlksByCol())
+      } else {
+        val result = blocks.mapPartitions(iter => {
+          val res = Array.ofDim[(BlockID, BDM[Double])](other.blksByCol)
+          val mats = bArr.value
+          iter.flatMap(t => {
+            for (j <- 0 until other.blksByCol) {
+              if (mode.toLowerCase.equals("broadcastb")) {
+                res(j) = (new BlockID(t._1.row, j),
+                  (t._2 * mats(t._1.column)(j)).asInstanceOf[BDM[Double]])
+              }else {
+                res(j) = (new BlockID(t._1.row, j),
+                  (mats(t._1.column)(j) * t._2).asInstanceOf[BDM[Double]])
+              }
+            }
+            res
+          })
+        }).partitionBy(new HashPartitioner(parallelism)).cache().reduceByKey(_ + _)
+        new BlockMatrix(result, this.numRows(), other.numCols(),
+          this.numBlksByRow(), other.numBlksByCol())
+      }
+  }
+  
+  /**
    * Save the result to the HDFS
    *
    * @param path the path to store in HDFS
    * @param format if set "blockmatrix", it will store in the format of [[edu.nju.pasalab.sparkmatrix.BlockMatrix]]
-   *               , else it will store in the format of [[edu.nju.pasalab.sparkmatrix.IndexMatrix]]
+   *               , else it will store in the format of [[edu.nju.pasalab.sparkmatrix.DenseVecMatrix]]
    */
   def saveToFileSystem(path: String, format: String = ""){
     if (format.toLowerCase.equals("blockmatrix")){
@@ -160,7 +238,7 @@ class BlockMatrix(
    *
    * @return IndexMatrix with the same content
    */
-  def toIndexmatrix(): IndexMatrix = {
+  def toIndexmatrix(): DenseVecMatrix = {
     val mostBlockRowLen = math.ceil( numRows().toDouble / numBlksByRow().toDouble).toInt
     val mostBlockColLen = math.ceil( numCols().toDouble / numBlksByCol().toDouble).toInt
     //    blocks.cache()
@@ -189,7 +267,7 @@ class BlockMatrix(
       new IndexRow(input._1 , Vectors.dense(array))
     })
 
-    new IndexMatrix(result)
+    new DenseVecMatrix(result)
   }
 
 
