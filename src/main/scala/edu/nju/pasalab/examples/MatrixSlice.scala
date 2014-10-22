@@ -2,7 +2,7 @@ package edu.nju.pasalab.examples
 
 import org.apache.spark.{SparkContext, SparkConf}
 
-import edu.nju.pasalab.sparkmatrix.{IndexMatrix, IndexRow, Vectors}
+import edu.nju.pasalab.sparkmatrix.{DenseVecMatrix, IndexRow, Vectors}
 
 /**
  * Test get sub matrix by row or column
@@ -21,7 +21,7 @@ object MatrixSlice {
        (4L, Vectors.dense(5.0, 5.0, 5.0, 5.0, 5.0, 5.0))
      ).map( x => IndexRow(x._1 , x._2))
      val rows = sc.parallelize(data,2)
-     val matrix = new IndexMatrix(rows)
+     val matrix = new DenseVecMatrix(rows)
      println("matrix contents (rows and columns index both start from 0):")
      matrix.rows.foreach( t => println(t.toString))
 

@@ -2,7 +2,7 @@ package edu.nju.pasalab.examples
 
 import org.apache.spark.{SparkContext, SparkConf}
 
-import edu.nju.pasalab.sparkmatrix.{IndexMatrix, IndexRow, Vectors}
+import edu.nju.pasalab.sparkmatrix.{DenseVecMatrix, IndexRow, Vectors}
 
 /**
  * Test element-element wise operations
@@ -21,7 +21,7 @@ object MatrixElemOP {
       (4L, Vectors.dense(5.0, 5.0, 5.0, 5.0, 5.0, 5.0))
     ).map( x => IndexRow(x._1 , x._2))
     val rows = sc.parallelize(data,2)
-    val matrixA = new IndexMatrix(rows)
+    val matrixA = new DenseVecMatrix(rows)
 
     val dataB = Seq(
       (0L, Vectors.dense(6.0, 5.0, 4.0, 3.0, 2.0, 1.0)),
@@ -32,7 +32,7 @@ object MatrixElemOP {
     ).map( x => IndexRow(x._1 , x._2))
 
     val rowsB = sc.parallelize(dataB,2)
-    val matrixB = new IndexMatrix(rowsB)
+    val matrixB = new DenseVecMatrix(rowsB)
 
     println("\nmatrix A contents (rows and columns index both start from 0):")
     matrixA.rows.foreach( t => println(t.toString))

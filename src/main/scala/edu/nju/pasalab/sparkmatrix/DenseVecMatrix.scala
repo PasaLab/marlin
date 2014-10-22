@@ -85,7 +85,7 @@ class DenseVecMatrix(
       && numRows() / numCols() > 0.8){
       multiplyHama(other,Math.floor(Math.pow(3 * cores, 1.0/3.0 )).toInt)
     }else {
-      multiplyCarma(other, 2 * cores)
+      multiplyCarma(other, cores)
     }
   }
 

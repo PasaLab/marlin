@@ -45,7 +45,7 @@ class CoordinateMatrix(
     nRows
   }
   /** Converts to IndexedRowMatrix. The number of columns must be within the integer range. */
-  def toIndexMatrix(): DenseVecMatrix = {
+  def toDenseVecMatrix(): DenseVecMatrix = {
     val nl = numCols()
     if (nl > Int.MaxValue) {
       sys.error(s"Cannot convert to a row-oriented format because the number of columns $nl is " +

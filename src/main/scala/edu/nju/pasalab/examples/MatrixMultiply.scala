@@ -13,9 +13,10 @@ import org.apache.spark.{SparkContext, SparkConf}
 object MatrixMultiply {
 
   def main(args: Array[String]) {
-    if (args.length < 3){
+    if (args.length < 4){
       System.err.println("arguments wrong, the arguments should be " +
-        "<input file path A> <input file path B> <cores across the cluster> <broadcast threshold>")
+        "<input file path A> <input file path B> <cores across the cluster> <output path> " +
+        " + optional parameter{<broadcast threshold>}")
       System.exit(-1)
     }
     val conf = new SparkConf()
@@ -35,15 +36,13 @@ object MatrixMultiply {
     val sc = new SparkContext(conf)
     val ma = MTUtils.loadMatrixFile(sc, args(0), args(2).toInt)
     val mb = MTUtils.loadMatrixFile(sc, args(1), args(2).toInt)
-    val threshold = if (args.length < 4) {
+    val threshold = if (args.length < 5) {
       300
-    }else { args(3).toInt }
+    }else { args(4).toInt }
     val result = ma.multiply(mb, args(2).toInt, threshold)
     println("Result RDD counts: " + result.blocks.count())
-//    val testBlk = result.blocks.first()
-//    println("result first block ID: " + testBlk._1.row + " " + testBlk._1.column)
-//    println("result first block (1,1): " + testBlk._2.apply(1,1))
-//    result.saveToFileSystem(args(5),"blockmatrix")
+    println("start store the result matrix in DenseVecMatrix type")
+    result.saveToFileSystem(args(3))
     sc.stop()
   }
 }
