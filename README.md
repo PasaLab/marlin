@@ -91,13 +91,6 @@ Currently,  we implement the matrix manipulation on Spark with [block matrix par
 ###Performance Evaluation
 We have done some performance evaluation of Marlin. It can be seen [here](https://github.com/PasaLab/marlin/wiki/Performance-comparison-on-matrices-multiply). We wiil update the wiki page when more results are carried out.
 
-##The relationship between Marlin and MLlib Matrix
-[MLlib](http://spark.apache.org/docs/latest/mllib-guide.html) contains quite a lot of general representations of Matrix. Marlin extends some of them and provides the distributed manipulation for the matrices.
-
-We override class `IndexedRow` in [MLlib](http://spark.apache.org/docs/latest/mllib-guide.html), it is still a `(Long, Vector)` wraper, usage is the same as `IndexedRow` .
-
-We override class `DenseVecMatrix` from `IndexedRowMatrix` in [MLlib](http://spark.apache.org/docs/latest/mllib-guide.html) from `RDD[IndexedRow]` to `RDD[IndexRow]`the usage is the same as `IndexedRowMatrix` . Moreover, you can transfom a local `Array[Array[Double]]` to a `IndexMatrix` by using `new DenseVecMatrix(sc, array)` method.
-
-We create class `BlockMatrix` from `RDD[(BlockID, BDM[Double])]`  (here, BDM is short for `breeze.linalg.DenseMatrix`).
-
-The MTUtils can load file-format matrix from hdfs and [tachyon](http://tachyon-project.org/), with `loadMatrixFile(sc: SparkContext, path: String, minPatition: Int = 3)` method
+##Contact
+gurongwalker at gmail dot com
+myasuka at live dot com
