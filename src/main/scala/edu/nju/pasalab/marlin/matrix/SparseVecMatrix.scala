@@ -1,11 +1,10 @@
-package edu.nju.pasalab.sparkmatrix
+package edu.nju.pasalab.marlin.matrix
+
+import scala.collection.mutable.ArrayBuffer
 
 import org.apache.spark.HashPartitioner
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext._
-
-import scala.collection.mutable.ArrayBuffer
-
 
 class SparseVecMatrix(
     val sparseVecs: RDD[IndexSparseRow],

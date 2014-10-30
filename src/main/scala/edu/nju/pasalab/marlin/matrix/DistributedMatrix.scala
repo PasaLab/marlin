@@ -1,4 +1,4 @@
-package edu.nju.pasalab.sparkmatrix
+package edu.nju.pasalab.marlin.matrix
 
 import breeze.linalg.{DenseMatrix => BDM}
 
@@ -18,5 +18,5 @@ trait DistributedMatrix extends Serializable {
   def numCols(): Long
 
   /** Collects data and assembles a local dense breeze matrix (for test only). */
-  private[sparkmatrix] def toBreeze(): BDM[Double]
+  private[matrix] def toBreeze(): BDM[Double]
 }

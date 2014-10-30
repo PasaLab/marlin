@@ -1,8 +1,8 @@
-package edu.nju.pasalab.examples
+package edu.nju.pasalab.marlin.examples
 
 import org.apache.spark.{SparkContext, SparkConf}
 
-import edu.nju.pasalab.sparkmatrix.{DenseVecMatrix, IndexRow, Vectors}
+import edu.nju.pasalab.marlin.matrix.{DenseVecMatrix, IndexRow, Vectors}
 
 /**
  * Test get sub matrix by row or column

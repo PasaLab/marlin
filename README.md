@@ -17,15 +17,16 @@ We have offered a default `build.sbt` file, make sure you have installed [sbt](h
 We have already offered some examples in `edu.nju.pasalab.examples` to show how to use the APIs in the project. For example, if you want to run two large matrices multiplication, use spark-submit method, and type in command
  
 	$.bin/spark-submit \
-	 --class edu.nju.pasalab.examples.MatrixMultiply
+	 --class edu.nju.pasalab.marlin.examples.MatrixMultiply
 	 --master <master-url> \
 	 --executor-memory <memory> \
 	 marlin_2.10-0.2-SNAPSHOT.jar \
-	 <input file path A> <input file path B> <cores cross the cluster> <output path>
+	 <matrix A rows> <martrix A columns> \
+	 <martrix B columns> <cores cross the cluster> <output path>
 
-**Notice:** Because the pre-built Spark-assembly jar doesn't have any files about netlib-java native compontent, which means you cannot use the native linear algebra library e.g BLAS to accelerate the computing, but have to use pure java to perform the small block matrix multiply in every worker. We have done some experiments and find it has a significant performance difference between the native BLAS computing and the pure java one, here you can find more info about the [performance comparison](https://github.com/PasaLab/marlin/wiki/Performance-comparison-on-matrices-multiply) and [how to load native library](https://github.com/PasaLab/marlin/wiki/How-to-load-native-linear-algebra-library).
+**Note:** Because the pre-built Spark-assembly jar doesn't have any files about netlib-java native compontent, which means you cannot use the native linear algebra library e.g BLAS to accelerate the computing, but have to use pure java to perform the small block matrix multiply in every worker. We have done some experiments and find it has a significant performance difference between the native BLAS computing and the pure java one, here you can find more info about the [performance comparison](https://github.com/PasaLab/marlin/wiki/Performance-comparison-on-matrices-multiply) and [how to load native library](https://github.com/PasaLab/marlin/wiki/How-to-load-native-linear-algebra-library).
 
-**Note:**`<input file path A>` is the file path contains the text-file format matrix. We recommand you put it in the hdfs, and in directory `data` we offer two matrix files, in which every row of matrix likes: `7:1,2,5,2.0,3.19,0,...` the `7` before `:` means this is the 8th row of this matrix (the row index starts from 0), and the numbers after `:` splited by `,` represent each column element in the row.
+**Note:** this example use `MTUtils.randomDenVecMatrix` to generate distributed random matrix in-memory without reading data from files.
 
 **Note:** `<cores cross the cluster>` is the num of cores across the cluster you want to use. 
 
@@ -40,15 +41,15 @@ Currently, we have finished below APIs:
 	</tr>
 	<tr>
 		<td>Matrix-Matrix addition</td>
-        <td>add(B: IndexMatrix)</td>
+        <td>add(B: DenseVecMatrix)</td>
 	</tr>
 	<tr>
 		<td>Matrix-Matrix minus</td>
-        <td>minus(B: IndexMatrix)</td>
+        <td>minus(B: DenseVecMatrix)</td>
 	</tr>
 	<tr>
 		<td>Matrix-Matrix multiplication</td>
-        <td>multiply(B: IndexMatrix, blkNum: Int)</td>
+        <td>multiply(B: DenseVecMatrix, cores: Int)</td>
 	</tr>
 	<tr>
 		<td>Elementwise addition</td>

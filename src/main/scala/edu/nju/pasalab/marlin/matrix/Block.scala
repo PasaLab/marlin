@@ -1,4 +1,4 @@
-package edu.nju.pasalab.sparkmatrix
+package edu.nju.pasalab.marlin.matrix
 
 import breeze.linalg.{DenseMatrix => BDM}
 

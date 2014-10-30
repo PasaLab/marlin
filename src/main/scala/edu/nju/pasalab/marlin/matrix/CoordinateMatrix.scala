@@ -1,4 +1,4 @@
-package edu.nju.pasalab.sparkmatrix
+package edu.nju.pasalab.marlin.matrix
 
 import breeze.linalg.{DenseMatrix => BDM}
 import org.apache.spark.annotation.Experimental
@@ -71,7 +71,7 @@ class CoordinateMatrix(
     nCols = math.max(nCols, n1 + 1L)
   }
   /** Collects data and assembles a local matrix. */
-  private[sparkmatrix] override def toBreeze(): BDM[Double] = {
+  private[matrix] override def toBreeze(): BDM[Double] = {
     val m = numRows().toInt
     val n = numCols().toInt
     val mat = BDM.zeros[Double](m, n)

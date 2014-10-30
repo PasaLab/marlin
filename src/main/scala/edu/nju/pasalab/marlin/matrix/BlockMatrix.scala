@@ -1,7 +1,6 @@
-package edu.nju.pasalab.sparkmatrix
+package edu.nju.pasalab.marlin.matrix
 
 import breeze.linalg.{DenseMatrix => BDM}
-
 import org.apache.spark.HashPartitioner
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext._
@@ -63,7 +62,7 @@ class BlockMatrix(
   }
 
   /** Collects data and assembles a local dense breeze matrix (for test only). */
-  override private[sparkmatrix] def toBreeze(): BDM[Double] = {
+  override private[matrix] def toBreeze(): BDM[Double] = {
     val m = numRows().toInt
     val n = numCols().toInt
     val mostBlkRowLen =math.ceil(m.toDouble / blksByRow.toDouble).toInt
@@ -154,7 +153,8 @@ class BlockMatrix(
   }
 
   /**
-   * BlockMatrix add another
+   * BlockMatrix add another matrix in DenseVecMatrix type
+   *
    * @param other the matrix to be added in DenseVecMatrix type
    * @return the addition result in DenseVecMatrix type
    */
@@ -164,6 +164,7 @@ class BlockMatrix(
 
   /**
    *  A transposed view of BlockMatrix
+   *
    *  @return the transpose of this BlockMatrix
    */
   final def transpose(): BlockMatrix = {
@@ -177,8 +178,9 @@ class BlockMatrix(
 
   /**
    * Using spark-property broadcast to decrease time used in the matrix-matrix multiplication
+   *
    * @param other other matrix to be multiplied
-   * @return
+   * @return the result matrix in BlockMatrix type
    */
   def multiplyBroadcast(other: BlockMatrix, parallelism: Int, splits:(Int, Int, Int), mode: String): BlockMatrix = {
     val bArr = if (mode.toLowerCase.equals("broadcastb")) {
@@ -197,53 +199,78 @@ class BlockMatrix(
       blocks.context.broadcast(blocksArray)
     }
 
-      if (splits._2 == 1) {
-        val result = blocks.mapPartitions(iter => {
-          val res = Array.ofDim[(BlockID, BDM[Double])](other.blksByCol)
-          val mats = bArr.value
-          iter.flatMap(t => {
-            for (j <- 0 until other.blksByCol) {
-              if (mode.toLowerCase.equals("broadcastb")) {
-                res(j) = (new BlockID(t._1.row, j),
-                  (t._2 * mats(t._1.column)(j)).asInstanceOf[BDM[Double]])
-              }else {
-                res(j) = (new BlockID(t._1.row, j),
-                  (mats(t._1.column)(j) * t._2).asInstanceOf[BDM[Double]])
-              }
-            }
-            res
-          })
-        })
-        new BlockMatrix(result, this.numRows(), other.numCols(),
-          this.numBlksByRow(), other.numBlksByCol())
-      } else {
-        val result = blocks.mapPartitions(iter => {
-          val res = Array.ofDim[(BlockID, BDM[Double])](other.blksByCol)
-          val mats = bArr.value
-          iter.flatMap(t => {
-            for (j <- 0 until other.blksByCol) {
-              if (mode.toLowerCase.equals("broadcastb")) {
-                res(j) = (new BlockID(t._1.row, j),
-                  (t._2 * mats(t._1.column)(j)).asInstanceOf[BDM[Double]])
-              }else {
-                res(j) = (new BlockID(t._1.row, j),
-                  (mats(t._1.column)(j) * t._2).asInstanceOf[BDM[Double]])
-              }
-            }
-            res
-          })
-        }).partitionBy(new HashPartitioner(parallelism)).cache().reduceByKey(_ + _)
-        new BlockMatrix(result, this.numRows(), other.numCols(),
-          this.numBlksByRow(), other.numBlksByCol())
-      }
+    val tmp = blocks.mapPartitions(iter => {
+      val res = Array.ofDim[(BlockID, BDM[Double])](other.blksByCol)
+      val mats = bArr.value
+      iter.flatMap(t => {
+        for (j <- 0 until other.blksByCol) {
+          if (mode.toLowerCase.equals("broadcastb")) {
+            res(j) = (new BlockID(t._1.row, j),
+              (t._2 * mats(t._1.column)(j)).asInstanceOf[BDM[Double]])
+          }else {
+            res(j) = (new BlockID(t._1.row, j),
+              (mats(t._1.column)(j) * t._2).asInstanceOf[BDM[Double]])
+          }
+        }
+        res
+      })
+    })
+
+    if (splits._2 == 1){
+      new BlockMatrix(tmp, this.numRows(), other.numCols(),
+        this.numBlksByRow(), other.numBlksByCol())
+    }else {
+      val result = tmp.partitionBy(new HashPartitioner(parallelism)).cache().reduceByKey(_ + _)
+      new BlockMatrix(result, this.numRows(), other.numCols(),
+        this.numBlksByRow(), other.numBlksByCol())
+    }
+//      if (splits._2 == 1) {
+//        val result = blocks.mapPartitions(iter => {
+//          val res = Array.ofDim[(BlockID, BDM[Double])](other.blksByCol)
+//          val mats = bArr.value
+//          iter.flatMap(t => {
+//            for (j <- 0 until other.blksByCol) {
+//              if (mode.toLowerCase.equals("broadcastb")) {
+//                res(j) = (new BlockID(t._1.row, j),
+//                  (t._2 * mats(t._1.column)(j)).asInstanceOf[BDM[Double]])
+//              }else {
+//                res(j) = (new BlockID(t._1.row, j),
+//                  (mats(t._1.column)(j) * t._2).asInstanceOf[BDM[Double]])
+//              }
+//            }
+//            res
+//          })
+//        })
+//        new BlockMatrix(result, this.numRows(), other.numCols(),
+//          this.numBlksByRow(), other.numBlksByCol())
+//      } else {
+//        val result = blocks.mapPartitions(iter => {
+//          val res = Array.ofDim[(BlockID, BDM[Double])](other.blksByCol)
+//          val mats = bArr.value
+//          iter.flatMap(t => {
+//            for (j <- 0 until other.blksByCol) {
+//              if (mode.toLowerCase.equals("broadcastb")) {
+//                res(j) = (new BlockID(t._1.row, j),
+//                  (t._2 * mats(t._1.column)(j)).asInstanceOf[BDM[Double]])
+//              }else {
+//                res(j) = (new BlockID(t._1.row, j),
+//                  (mats(t._1.column)(j) * t._2).asInstanceOf[BDM[Double]])
+//              }
+//            }
+//            res
+//          })
+//        }).partitionBy(new HashPartitioner(parallelism)).cache().reduceByKey(_ + _)
+//        new BlockMatrix(result, this.numRows(), other.numCols(),
+//          this.numBlksByRow(), other.numBlksByCol())
+//      }
   }
   
   /**
    * Save the result to the HDFS
    *
    * @param path the path to store in HDFS
-   * @param format if set "blockmatrix", it will store in the format of [[edu.nju.pasalab.sparkmatrix.BlockMatrix]]
-   *               , else it will store in the format of [[edu.nju.pasalab.sparkmatrix.DenseVecMatrix]]
+   * @param format if set "blockmatrix", it will store in the format of [[edu.nju.pasalab.marlin.matrix.BlockMatrix]]
+   *               , else it will store in the format of [[edu.nju.pasalab.marlin.matrix.DenseVecMatrix]]
    */
   def saveToFileSystem(path: String, format: String = " "){
     if (format.toLowerCase.equals("blockmatrix")){

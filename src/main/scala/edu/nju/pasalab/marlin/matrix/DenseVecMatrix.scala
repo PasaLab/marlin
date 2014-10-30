@@ -1,16 +1,16 @@
-package edu.nju.pasalab.sparkmatrix
+package edu.nju.pasalab.marlin.matrix
 
 import java.io.IOException
 
 import scala.collection.mutable.ArrayBuffer
 
 import breeze.linalg.{DenseMatrix => BDM}
-
 import org.apache.log4j.{Logger, Level}
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 import org.apache.spark.rdd.RDD
 
+import edu.nju.pasalab.marlin.utils.MTUtils
 
 /**
  * This class overrides from [[org.apache.spark.mllib.linalg.distributed.IndexedRowMatrix]]
@@ -48,7 +48,7 @@ class DenseVecMatrix(
   }
 
   /** Collects data and assembles a local dense breeze matrix (for test only). */
-  override private [sparkmatrix]  def toBreeze(): BDM[Double] = {
+  override private [matrix]  def toBreeze(): BDM[Double] = {
     val m = numRows().toInt
     val n = numCols().toInt
     val mat = BDM.zeros[Double](m, n)
@@ -70,14 +70,18 @@ class DenseVecMatrix(
    * @return result in BlockMatrix type
    */
 
-  final def multiply(other: DenseVecMatrix, cores: Int, broadcastThreshold: Int = 300): BlockMatrix = {
-    require(this.numCols == other.numRows(), s"Dimension mismatch: ${this.numCols} vs ${other.numRows()}")
+  final def multiply(other: DenseVecMatrix,
+            cores: Int,
+            broadcastThreshold: Int = 300): BlockMatrix = {
+    require(this.numCols == other.numRows(),
+      s"Dimension mismatch: ${this.numCols} vs ${other.numRows()}")
+
     val broadSize = broadcastThreshold * 1024 * 1024 / 8
     if (other.numRows() * other.numCols() <= broadSize){
       val parallelism = Math.min(8 * cores, numRows() / 2).toInt
       multiplyBroadcast(other, parallelism, (parallelism, 1, 1), "broadcastB" )
     }else if ( numRows() * numCols() <= broadSize ){
-      val parallelism = Math.min(8 * cores, numRows() / 2).toInt
+      val parallelism = Math.min(8 * cores, other.numRows() / 2).toInt
       multiplyBroadcast(other, parallelism, (1, 1, parallelism), "broadcastA" )
     }else if (0.8 < (numRows() * other.numCols()).toDouble / (numCols() * numCols()).toDouble
       && (numRows() * other.numCols()).toDouble / (numCols() * numCols()).toDouble < 1.2
@@ -96,6 +100,7 @@ class DenseVecMatrix(
    * @param blkNum is the split nums of submatries, if you set it as 10,
    *               which means you split every original large matrix into 10*10=100 blocks.
    *               The smaller this argument, the biger every worker get submatrix.
+   * @return a distributed matrix in BlockMatrix type
    */
   final def multiplyHama(other: DenseVecMatrix, blkNum: Int): BlockMatrix = {
     val otherRows = other.numRows()
@@ -114,13 +119,14 @@ class DenseVecMatrix(
    *
    * @param other matrix to be multiplied, in the form of IndexMatrix
    * @param cores all the num of cores cross the cluster
-   * @return
+   * @return a distributed matrix in BlockMatrix type
    */
 
   final def multiplyCarma(other: DenseVecMatrix, cores: Int): BlockMatrix = {
     val otherRows = other.numRows()
     require(this.numCols == otherRows, s"Dimension mismatch: ${this.numCols} vs ${otherRows}")
-    val (mSplitNum, kSplitNum, nSplitNum) = MTUtils.splitMethod(this.numRows(), this.numCols(), other.numCols(), cores)
+    val (mSplitNum, kSplitNum, nSplitNum) =
+      MTUtils.splitMethod(numRows(), numCols(), other.numCols(), cores)
     val thisCollects = this.toBlockMatrix(mSplitNum, kSplitNum)
     val otherCollects = other.toBlockMatrix(kSplitNum, nSplitNum)
     thisCollects.multiply(otherCollects, cores)
@@ -136,7 +142,9 @@ class DenseVecMatrix(
    * @return
    */
 
-  final def multiplyBroadcast(other: DenseVecMatrix, parallelism: Int, splits:(Int, Int, Int), mode: String): BlockMatrix = {
+  final def multiplyBroadcast(other: DenseVecMatrix,
+                              parallelism: Int,
+                              splits:(Int, Int, Int), mode: String): BlockMatrix = {
     val otherRows = other.numRows()
     require(this.numCols == otherRows, s"Dimension mismatch: ${this.numCols} vs ${otherRows}")
     val thisCollects = this.toBlockMatrix(splits._1, splits._2)
@@ -147,13 +155,15 @@ class DenseVecMatrix(
 
   /**
    * This function is still in progress !
-   * LU decompose this IndexMatrix to generate a lower triangular matrix L and a upper triangular matrix U
+   * LU decompose this IndexMatrix to generate a lower triangular matrix L
+   * and a upper triangular matrix U
    *
    * @return a pair (lower triangular matrix, upper triangular matrix)
    */
   def luDecompose(mode: String = "auto"): (DenseVecMatrix, DenseVecMatrix) = {
     val iterations = this.numRows
-    require(iterations == this.numCols, s"currently we only support square matrix: ${iterations} vs ${this.numCols}")
+    require(iterations == this.numCols,
+      s"currently we only support square matrix: ${iterations} vs ${this.numCols}")
 
 //    object LUmode extends Enumeration {
 //      val LocalBreeze, DistSpark = Value
@@ -357,7 +367,7 @@ class DenseVecMatrix(
     require((startCol >= 0 && endCol <= this.numCols()),
       s"start column or end column dismatch the matrix num of columns")
 
-    new DenseVecMatrix(this.rows.map(t => IndexRow(t.index, Vectors.dense(t.vector.toArray.slice(startCol, endCol+1)))))
+    new DenseVecMatrix(this.rows.map(t => IndexRow(t.index, Vectors.dense(t.vector.toArray.slice(startCol, endCol + 1)))))
   }
 
   /**
@@ -375,7 +385,7 @@ class DenseVecMatrix(
 
     new DenseVecMatrix(this.rows
       .filter(t => (t.index >= startRow && t.index <= endRow))
-      .map(t => IndexRow(t.index, Vectors.dense(t.vector.toArray.slice(startCol,endCol+1)))))
+      .map(t => IndexRow(t.index, Vectors.dense(t.vector.toArray.slice(startCol,endCol + 1)))))
   }
 
 
@@ -392,9 +402,11 @@ class DenseVecMatrix(
   /**
    * transform the DenseVecMatrix to BlockMatrix
    *
-   * @param numByRow num of subMatrix by row
-   * @param numByCol num of subMatrix by column
-   * @return
+   * @param numByRow num of subMatrix along the row side set by user,
+   *                 the actual num of subMatrix along the row side is `blksByRow`
+   * @param numByCol num of subMatrix along the column side set by user,
+   *                 the actual num of subMatrix along the row side is `blksByCol`
+   * @return the transformated matrix in BlockMatrix type
    */
 
   def toBlockMatrix(numByRow: Int, numByCol: Int): BlockMatrix = {
@@ -402,6 +414,8 @@ class DenseVecMatrix(
     val mColumns = this.numCols().toInt
     val mBlockRowSize = math.ceil(mRows.toDouble / numByRow.toDouble).toInt
     val mBlockColSize = math.ceil(mColumns.toDouble / numByCol.toDouble).toInt
+    val blksByRow = math.ceil(mRows.toDouble / mBlockRowSize).toInt
+    val blksByCol = math.ceil(mColumns.toDouble / mBlockColSize).toInt
     val result = rows.mapPartitions(iter => {
       iter.flatMap( t => {
         var startColumn = 0
@@ -451,7 +465,8 @@ class DenseVecMatrix(
         while (itr.hasNext) {
           val vec = itr.next()
           if (vec.vector.size != smCols) {
-            Logger.getLogger(this.getClass).log(Level.ERROR,"vectors:  "+ input._2+"Block Column Size dismatched" )
+            Logger.getLogger(this.getClass).
+              log(Level.ERROR,"vectors:  " + input._2 +"Block Column Size dismatched" )
             throw new IOException("Block Column Size dismatched")
           }
 
@@ -471,7 +486,7 @@ class DenseVecMatrix(
         (input._1, subMatrix)
       })}, true)
 
-    new BlockMatrix(result, numRows(), numCols(), numByRow, numByCol)
+    new BlockMatrix(result, numRows(), numCols(), blksByRow, blksByCol)
   }
 
   /**

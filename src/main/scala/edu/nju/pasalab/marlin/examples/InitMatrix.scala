@@ -1,11 +1,12 @@
-package edu.nju.pasalab.examples
+package edu.nju.pasalab.marlin.examples
 
+import edu.nju.pasalab.marlin.utils.MTUtils
 import org.apache.spark.{SparkContext, SparkConf}
 
-import edu.nju.pasalab.sparkmatrix.{MTUtils, DenseVecMatrix}
+import edu.nju.pasalab.marlin.matrix.DenseVecMatrix
 
 /**
- * Test method matrixToArray in [[edu.nju.pasalab.sparkmatrix.MTUtils]]
+ * Test method matrixToArray in [[MTUtils]]
  * Only in spark-shell or local mode, you can see the print result
  */
 object InitMatrix {

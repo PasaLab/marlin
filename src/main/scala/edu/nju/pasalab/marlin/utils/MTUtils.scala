@@ -1,11 +1,63 @@
-package edu.nju.pasalab.sparkmatrix
+package edu.nju.pasalab.marlin.utils
+
+import java.nio.ByteBuffer
+
+import scala.util.hashing.MurmurHash3
 
 import breeze.linalg.{DenseMatrix => BDM}
-
-import org.apache.log4j.{Level, Logger}
 import org.apache.spark.SparkContext
 
+import edu.nju.pasalab.marlin.matrix._
+import edu.nju.pasalab.marlin.rdd.RandomRDDs
+
 object MTUtils {
+
+  /** Hash seeds to have 0/1 bits throughout. */
+  private[marlin] def hashSeed(seed: Long): Long = {
+    val bytes = ByteBuffer.allocate(java.lang.Long.SIZE).putLong(seed).array()
+    MurmurHash3.bytesHash(bytes)
+  }
+
+  /**
+   * Function to generate a distributed BlockMatrix, in which every element is in the uniform distribution
+   *
+   * @param sc spark context
+   * @param nRows the number of rows of the whole matrix
+   * @param nColumns the number of columns of the whole matrix
+   * @param blksByRow the number of submatrices along the row side
+   * @param blksByCol the number of submatrices along the column side
+   * @param distribution the distribution of the elements in the matrix, default is U[0.0, 1.0]
+   * @return BlockMatrix
+   */
+  def randomBlockMatrix(sc: SparkContext,
+      nRows: Long,
+      nColumns: Int,
+      blksByRow: Int,
+      blksByCol: Int,
+      distribution: RandomDataGenerator[Double] = new UniformGenerator(0.0, 1.0)): BlockMatrix = {
+
+    val blocks = RandomRDDs.randomBlockRDD(sc, distribution, nRows, nColumns, blksByRow, blksByCol)
+    new BlockMatrix(blocks, nRows, nColumns, blksByRow, blksByCol)
+  }
+
+  /**
+   * Function to generate a distributed BlockMatrix, in which every element is in the uniform distribution
+   *
+   * @param sc spark context
+   * @param nRows the number of rows of the whole matrix
+   * @param nColumns the number of columns of the whole matrix
+   * @param distribution the distribution of the elements in the matrix, default is U[0.0, 1.0]
+   * @return BlockMatrix
+   */
+  def randomDenVecMatrix(sc: SparkContext,
+      nRows: Long,
+      nColumns: Int,
+      numPartitions: Int = 0,
+      distribution: RandomDataGenerator[Double] = new UniformGenerator(0.0, 1.0)): DenseVecMatrix = {
+    
+    val rows = RandomRDDs.randomDenVecRDD(sc, distribution, nRows, nColumns, numPartitionsOrDefault(sc, numPartitions))
+    new DenseVecMatrix(rows, nRows, nColumns)  
+  }
 
   /**
    * Function to design the method how to split input two matrices
@@ -17,7 +69,6 @@ object MTUtils {
    * @return rows of Matrix A to be split nums, columns of Matrix A to be split nums,
    *         columns of Matrix B to be split nums
    */
-
   def splitMethod(m: Long, k: Long, n: Long, cores: Int): (Int, Int, Int) = {
     var mSplitNum = 1
     var kSplitNum = 1
@@ -62,6 +113,7 @@ object MTUtils {
    * @param sc the running SparkContext
    * @param path the path where store the matrix
    * @param minPartition the min num of partitions of the matrix to load in Spark
+   * @return a distributed matrix in DenseVecMatrix type                    
    */
   def loadMatrixFile(sc: SparkContext, path: String, minPartition: Int = 4): DenseVecMatrix = {
     if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://") && !path.startsWith("file://")) {
@@ -86,6 +138,7 @@ object MTUtils {
    * @param sc the running SparkContext
    * @param path the path where store the matrix
    * @param minPartition the min num of partitions of the matrix to load in Spark
+   * @return a distributed matrix in BlockMatrix type 
    */
   def loadBlockMatrixFile(sc: SparkContext, path: String, minPartition: Int = 4): BlockMatrix = {
     if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://") && !path.startsWith("file://")) {
@@ -111,6 +164,7 @@ object MTUtils {
    * @param sc the running SparkContext
    * @param path the path where store the matrix
    * @param minPartition the min num of partitions of the matrix to load in Spark
+   * @return a distributed matrix in DenseVecMatrix type                    
    */
   def loadMatrixFiles(sc: SparkContext, path: String, minPartition: Int = 4): DenseVecMatrix = {
     if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://") && !path.startsWith("file://")) {
@@ -134,6 +188,7 @@ object MTUtils {
    * @param sc the running SparkContext
    * @param path the path where store the matrix
    * @param minPartition the min num of partitions of the matrix to load in Spark
+   * @return a disrtibuted matrix in BlockMatrix type                    
    */
   def loadBlockMatrixFiles(sc: SparkContext, path: String, minPartition: Int = 4): BlockMatrix = {
     if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://") && !path.startsWith("file://")) {
@@ -154,11 +209,12 @@ object MTUtils {
   }
 
   /**
-   * Function to generate a IndexMatrix from a Array[Array[Double]
+   * Function to generate a DenseVecMatrix from a Array[Array[Double]
    *
    * @param sc the running SparkContext
    * @param array the two dimension Double array
    * @param partitions the default num of partitions when you create an RDD, you can set it by yourself
+   * @return a distributed matrix in DenseVecMatrix type                  
    */
   def arrayToMatrix(sc:SparkContext , array: Array[Array[Double]] , partitions: Int = 2): DenseVecMatrix ={
     new DenseVecMatrix( sc.parallelize(array.zipWithIndex.
@@ -166,11 +222,12 @@ object MTUtils {
   }
 
   /**
-   * Function to transform a IndexMatrix to a Array[Array[Double]], but now we use collect method to
+   * Function to transform a DenseVecMatrix to a Array[Array[Double]], but now we use collect method to
    * get all the content from distributed matrices which means it is expensive, so currently only
    * not so large matrix can transform to Array[Array[Double]]
    *
    * @param mat the IndexMatrix to be transformed
+   * @return a local array of two dimensions           
    */
 
   def matrixToArray(mat: DenseVecMatrix ): Array[Array[Double]] ={
@@ -179,4 +236,15 @@ object MTUtils {
     arr
   }
 
+
+  /**
+   * Returns `numPartitions` if it is positive, or `sc.defaultParallelism` otherwise.
+   */
+  private def numPartitionsOrDefault(sc: SparkContext, numPartitions: Int): Int = {
+    if (numPartitions > 0) numPartitions
+    else if (!sc.getConf.getOption("spark.default.parallelism").isEmpty) {
+      sc.getConf.get("spark.default.parallelism").toInt
+    }else sc.defaultMinPartitions
+
+  }
 }
