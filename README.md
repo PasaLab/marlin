@@ -14,7 +14,7 @@ We have offered a default `build.sbt` file, make sure you have installed [sbt](h
 **Note:** Version of `breeze` in `Spark 1.1.0`  is `0.9` .
 
 ##Run Marlin
-We have already offered some examples in `edu.nju.pasalab.examples` to show how to use the APIs in the project. For example, if you want to run two large matrices multiplication, use spark-submit method, and type in command
+We have already offered some examples in `edu.nju.pasalab.marlin.examples` to show how to use the APIs in the project. For example, if you want to run two large matrices multiplication, use spark-submit method, and type in command
  
 	$.bin/spark-submit \
 	 --class edu.nju.pasalab.marlin.examples.MatrixMultiply
@@ -86,11 +86,10 @@ Currently, we have finished below APIs:
 </table>   
 
 ##Algorithms and Performance Evaluation
-###Algorithms
-Currently,  we implement the matrix manipulation on Spark with [block matrix parallel algorithms](http://en.wikipedia.org/wiki/Block_matrix#Block_matrix_multiplication) to distribute large scale matrix computation among cluster nodes. The details of the matrix multiplication algorithm is [here](https://github.com/PasaLab/marlin/wiki/Matrix-multiply-algorithm).
+The details of the matrix multiplication algorithm is [here](https://github.com/PasaLab/marlin/wiki/Matrix-multiply-algorithm).
 
 ###Performance Evaluation
-We have done some performance evaluation of Marlin. It can be seen [here](https://github.com/PasaLab/marlin/wiki/Performance-comparison-on-matrices-multiply). We wiil update the wiki page when more results are carried out.
+We have done some performance evaluation of Marlin. It can be seen [here](https://github.com/PasaLab/marlin/wiki/Performance-comparison-on-matrices-multiply).
 
 ##Contact
 gurongwalker at gmail dot com
