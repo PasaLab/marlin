@@ -12,6 +12,8 @@ import org.apache.spark.rdd.RDD
 
 import edu.nju.pasalab.marlin.utils.MTUtils
 
+import scala.collection.parallel.mutable.ParArray
+
 /**
  * This class overrides from [[org.apache.spark.mllib.linalg.distributed.IndexedRowMatrix]]
  * Notice: some code in this file is copy from MLlib to make it compatible
@@ -73,8 +75,8 @@ class DenseVecMatrix(
   final def multiply(other: DenseVecMatrix,
             cores: Int,
             broadcastThreshold: Int = 300): BlockMatrix = {
-    require(this.numCols == other.numRows(),
-      s"Dimension mismatch: ${this.numCols} vs ${other.numRows()}")
+    require(numCols == other.numRows(),
+      s"Dimension mismatch: ${numCols} vs ${other.numRows()}")
 
     val broadSize = broadcastThreshold * 1024 * 1024 / 8
     if (other.numRows() * other.numCols() <= broadSize){
@@ -104,11 +106,11 @@ class DenseVecMatrix(
    */
   final def multiplyHama(other: DenseVecMatrix, blkNum: Int): BlockMatrix = {
     val otherRows = other.numRows()
-    require(this.numCols == otherRows, s"Dimension mismatch: ${this.numCols} vs ${otherRows}")
+    require(numCols == otherRows, s"Dimension mismatch: ${numCols} vs ${otherRows}")
 
     resultCols = other.numCols()
 
-    val thisBlocks = this.toBlockMatrix(blkNum, blkNum)
+    val thisBlocks = toBlockMatrix(blkNum, blkNum)
     val otherBlocks = other.toBlockMatrix(blkNum, blkNum)
     thisBlocks.multiply(otherBlocks, blkNum * blkNum * blkNum)
   }
@@ -124,10 +126,10 @@ class DenseVecMatrix(
 
   final def multiplyCarma(other: DenseVecMatrix, cores: Int): BlockMatrix = {
     val otherRows = other.numRows()
-    require(this.numCols == otherRows, s"Dimension mismatch: ${this.numCols} vs ${otherRows}")
+    require(numCols == otherRows, s"Dimension mismatch: ${numCols} vs ${otherRows}")
     val (mSplitNum, kSplitNum, nSplitNum) =
       MTUtils.splitMethod(numRows(), numCols(), other.numCols(), cores)
-    val thisCollects = this.toBlockMatrix(mSplitNum, kSplitNum)
+    val thisCollects = toBlockMatrix(mSplitNum, kSplitNum)
     val otherCollects = other.toBlockMatrix(kSplitNum, nSplitNum)
     thisCollects.multiply(otherCollects, cores)
   }
@@ -146,8 +148,8 @@ class DenseVecMatrix(
                               parallelism: Int,
                               splits:(Int, Int, Int), mode: String): BlockMatrix = {
     val otherRows = other.numRows()
-    require(this.numCols == otherRows, s"Dimension mismatch: ${this.numCols} vs ${otherRows}")
-    val thisCollects = this.toBlockMatrix(splits._1, splits._2)
+    require(numCols == otherRows, s"Dimension mismatch: ${numCols} vs ${otherRows}")
+    val thisCollects = toBlockMatrix(splits._1, splits._2)
     val otherCollects = other.toBlockMatrix(splits._2, splits._3)
     thisCollects.multiplyBroadcast(otherCollects, parallelism, splits, mode)
   }
@@ -161,9 +163,9 @@ class DenseVecMatrix(
    * @return a pair (lower triangular matrix, upper triangular matrix)
    */
   def luDecompose(mode: String = "auto"): (DenseVecMatrix, DenseVecMatrix) = {
-    val iterations = this.numRows
-    require(iterations == this.numCols,
-      s"currently we only support square matrix: ${iterations} vs ${this.numCols}")
+    val iterations = numRows
+    require(iterations == numCols,
+      s"currently we only support square matrix: ${iterations} vs ${numCols}")
 
 //    object LUmode extends Enumeration {
 //      val LocalBreeze, DistSpark = Value
@@ -181,7 +183,7 @@ class DenseVecMatrix(
 //
 //    val (lower: IndexMatrix, upper: IndexMatrix) = computeMode match {
 //      case LUmode.LocalBreeze =>
-//       val temp =  bLU(this.toBreeze())
+//       val temp =  bLU(toBreeze())
 //        Matrices.fromBreeze(breeze.linalg.lowerTriangular(temp._1))
 //    }
 //
@@ -196,7 +198,7 @@ class DenseVecMatrix(
 
     val num = iterations.toInt
 
-    val lowerMat = new DenseVecMatrix( this.rows.map( t => new IndexRow(t.index , Vectors.sparse(t.vector.size , Seq()))) )
+    val lowerMat = new DenseVecMatrix( rows.map( t => new IndexRow(t.index , Vectors.sparse(t.vector.size , Seq()))) )
 
     for (i <- 0 until num) {
      val vector = matr.rows.filter(t => t.index.toInt == i).map(t => t.vector).first()
@@ -254,17 +256,16 @@ class DenseVecMatrix(
    * @param other another matrix in IndexMatrix format
    */
   final def add(other: DenseVecMatrix): DenseVecMatrix = {
-    val nRows = this.numRows()
+    val nRows = numRows()
     val otherRows = other.numRows()
     require(nRows == otherRows, s"Dimension mismatch: ${nRows} vs ${otherRows}")
-    require(this.numCols == other.numCols, s"Dimension mismatch: ${this.numCols} vs ${other.numCols}")
+    require(numCols == other.numCols, s"Dimension mismatch: ${numCols} vs ${other.numCols}")
 
-    val result = this.rows
+    val result = rows
       .map(t => (t.index, t.vector))
       .join(other.rows.map(t => (t.index, t.vector)))
-      .map(t => IndexRow(t._1, Vectors.fromBreeze(t._2._1.toBreeze.asInstanceOf[breeze.linalg.Vector[Double]]
-        + t._2._2.toBreeze.asInstanceOf[breeze.linalg.Vector[Double]])))
-    new DenseVecMatrix(result)
+      .map(t => IndexRow(t._1, Vectors.fromBreeze(t._2._1.toBreeze + t._2._2.toBreeze)))
+    new DenseVecMatrix(result, numRows(), numCols())
   }
 
   /**
@@ -272,38 +273,36 @@ class DenseVecMatrix(
    *
    * @param other another matrix in IndexMatrix format
    */
-  final def minus(other: DenseVecMatrix): DenseVecMatrix = {
-    val nRows = this.numRows()
-    val otherRows = other.numRows()
-    require(nRows == otherRows, s"Dimension mismatch: ${nRows} vs ${otherRows}")
-    require(this.numCols == other.numCols, s"Dimension mismatch: ${this.numCols} vs ${other.numCols()}")
+  final def subtract(other: DenseVecMatrix): DenseVecMatrix = {
+    require(numRows() == other.numRows(), s"Dimension mismatch: ${numRows()} vs ${other.numRows()}")
+    require(numCols == other.numCols, s"Dimension mismatch: ${numCols} vs ${other.numCols()}")
 
-    val result = this.rows
+    val result = rows
       .map(t => (t.index, t.vector))
       .join(other.rows.map(t => (t.index, t.vector)))
       .map(t => IndexRow(t._1, Vectors.fromBreeze(t._2._1.toBreeze - t._2._2.toBreeze)))
-    new DenseVecMatrix(result)
+    new DenseVecMatrix(result, numRows(), numCols())
   }
 
 
   /**
    * Element in this matrix element-wise add another scalar
    *
-   * @param b a number in the format of double
+   * @param b the number to be element-wise added
    */
-  final def elemWiseAdd(b: Double): DenseVecMatrix = {
-    val result = this.rows.map(t =>IndexRow(t.index, Vectors.dense(t.vector.toArray.map(_ + b))))
-    new DenseVecMatrix(result)
+  final def add(b: Double): DenseVecMatrix = {
+    val result = rows.map(t =>IndexRow(t.index, Vectors.dense(t.vector.toArray.map(_ + b))))
+    new DenseVecMatrix(result, numRows(), numCols())
   }
 
   /**
    * Element in this matrix element-wise minus another scalar
    *
-   * @param b a number in the format of double
+   * @param b a number to be element-wise subtracted
    */
-  final def elemWiseMinus(b: Double): DenseVecMatrix = {
-    val result = this.rows.map(t =>IndexRow(t.index, Vectors.dense(t.vector.toArray.map(_ - b))))
-    new DenseVecMatrix(result)
+  final def subtract(b: Double): DenseVecMatrix = {
+    val result = rows.map(t =>IndexRow(t.index, Vectors.dense(t.vector.toArray.map(_ - b))))
+    new DenseVecMatrix(result, numRows(), numCols())
   }
 
   /**
@@ -311,9 +310,9 @@ class DenseVecMatrix(
    *
    * @param b a number in the format of double
    */
-  final def elemWiseMinusBy(b: Double): DenseVecMatrix = {
-    val result = this.rows.map(t =>IndexRow(t.index, Vectors.dense(t.vector.toArray.map(b - _ ))))
-    new DenseVecMatrix(result)
+  final def substactBy(b: Double): DenseVecMatrix = {
+    val result = rows.map(t =>IndexRow(t.index, Vectors.dense(t.vector.toArray.map(b - _ ))))
+    new DenseVecMatrix(result, numRows(), numCols())
   }
 
   /**
@@ -321,19 +320,20 @@ class DenseVecMatrix(
    *
    * @param b a number in the format of double
    */
-  final def elemWiseMult(b: Double): DenseVecMatrix = {
-    val result = this.rows.map(t =>IndexRow(t.index, Vectors.dense(t.vector.toArray.map(_ * b))))
-    new DenseVecMatrix(result)
+  final def multiply(b: Double): DenseVecMatrix = {
+    val result = rows.map(t =>IndexRow(t.index, Vectors.dense(t.vector.toArray.map(_ * b))))
+    new DenseVecMatrix(result, numRows(), numCols())
   }
 
   /**
    * Element in this matrix element-wise divide another scalar
    *
    * @param b a number in the format of double
+   * @return result in DenseVecMatrix type
    */
-  final def elemWiseDivide(b: Double): DenseVecMatrix = {
-    val result = this.rows.map(t =>IndexRow(t.index, Vectors.dense(t.vector.toArray.map( _ / b))))
-    new DenseVecMatrix(result)
+  final def divide(b: Double): DenseVecMatrix = {
+    val result = rows.map(t =>IndexRow(t.index, Vectors.dense(t.vector.toArray.map( _ / b))))
+    new DenseVecMatrix(result, numRows(), numCols())
   }
 
   /**
@@ -341,9 +341,9 @@ class DenseVecMatrix(
    *
    * @param b a number in the format of double
    */
-  final def elemWiseDivideBy(b: Double): DenseVecMatrix = {
-    val result = this.rows.map(t =>IndexRow(t.index, Vectors.dense(t.vector.toArray.map( b / _))))
-    new DenseVecMatrix(result)
+  final def divideBy(b: Double): DenseVecMatrix = {
+    val result = rows.map(t =>IndexRow(t.index, Vectors.dense(t.vector.toArray.map( b / _))))
+    new DenseVecMatrix(result, numRows(), numCols())
   }
 
   /**
@@ -353,8 +353,11 @@ class DenseVecMatrix(
    * @param endRow the end row of the subMatrix, this row is included
    */
   final def sliceByRow(startRow: Long, endRow: Long): DenseVecMatrix = {
-    require((startRow >= 0 && endRow <= this.numRows()), s"start row or end row dismatch the matrix num of rows")
-    new DenseVecMatrix(this.rows.filter(t => (t.index >= startRow && t.index <= endRow)))
+    require((startRow >= 0 && endRow <= numRows() && startRow <= endRow),
+      s"start row or end row mismatch the matrix num of rows")
+
+    new DenseVecMatrix(rows.filter(t => (t.index >= startRow && t.index <= endRow))
+      , endRow - startRow + 1, numCols())
   }
 
   /**
@@ -364,10 +367,11 @@ class DenseVecMatrix(
    * @param endCol the end column of the subMatrix, this column is included
    */
   final def sliceByColumn(startCol: Int, endCol: Int): DenseVecMatrix = {
-    require((startCol >= 0 && endCol <= this.numCols()),
-      s"start column or end column dismatch the matrix num of columns")
+    require((startCol >= 0 && endCol <= numCols() && startCol <= endCol),
+      s"start column or end column mismatch the matrix num of columns")
 
-    new DenseVecMatrix(this.rows.map(t => IndexRow(t.index, Vectors.dense(t.vector.toArray.slice(startCol, endCol + 1)))))
+    new DenseVecMatrix(rows.map(t => IndexRow(t.index, Vectors.dense(t.vector.toArray.slice(startCol, endCol + 1))))
+      , numRows(), endCol - startCol + 1)
   }
 
   /**
@@ -379,15 +383,50 @@ class DenseVecMatrix(
    * @param endCol the end column of the subMatrix, this column is included
    */
   final def getSubMatrix(startRow: Long, endRow: Long ,startCol: Int, endCol: Int): DenseVecMatrix = {
-    require((startRow >= 0 && endRow <= this.numRows()), s"start row or end row dismatch the matrix num of rows")
-    require((startCol >= 0 && endCol <= this.numCols()),
+    require((startRow >= 0 && endRow <= numRows()), s"start row or end row dismatch the matrix num of rows")
+    require((startCol >= 0 && endCol <= numCols()),
       s"start column or end column dismatch the matrix num of columns")
 
-    new DenseVecMatrix(this.rows
+    new DenseVecMatrix(rows
       .filter(t => (t.index >= startRow && t.index <= endRow))
-      .map(t => IndexRow(t.index, Vectors.dense(t.vector.toArray.slice(startCol,endCol + 1)))))
+      .map(t => IndexRow(t.index, Vectors.dense(t.vector.toArray.slice(startCol,endCol + 1))))
+    , endRow - startRow + 1, endCol - startCol + 1)
   }
 
+  /**
+   * compute the norm of this matrix
+   *
+   * @param mode the same with Matlab operations,
+   *             `1` means get the 1-norm, the largest column sum of matrix
+   *             `2` means get the largest singular value, the default mode --- need to do
+   *             `inf` means the infinity norm, the largest row sum of matrix
+   *             `fro` means the Frobenius-norm of matrix -- need to do
+   */
+  final def norm(mode: String): Double = {
+    mode match {
+      case "1" => {
+        rows.mapPartitions( iter =>{
+          val columnAcc = new ParArray[Double](numCols().toInt)
+          iter.map( t => {
+            val arr = t.vector.toArray
+            for ( i <- 0 until arr.length){
+              columnAcc(i) += math.abs(arr(i))
+            }
+          }
+         )
+        columnAcc.toIterator}).max()
+      }
+//      case "2" => {
+//
+//      }
+      case "inf" => {
+        rows.map( t => t.vector.toArray.reduce( _ + _ )).max()
+      }
+//      case "for" => {
+//
+//      }
+    }
+  }
 
 
   /**
@@ -396,7 +435,7 @@ class DenseVecMatrix(
    * @param path the path to store the IndexMatrix in HDFS
    */
   def saveToFileSystem(path: String){
-    this.rows.saveAsTextFile(path)
+    rows.saveAsTextFile(path)
   }
 
   /**
@@ -410,8 +449,8 @@ class DenseVecMatrix(
    */
 
   def toBlockMatrix(numByRow: Int, numByCol: Int): BlockMatrix = {
-    val mRows = this.numRows().toInt
-    val mColumns = this.numCols().toInt
+    val mRows = numRows().toInt
+    val mColumns = numCols().toInt
     val mBlockRowSize = math.ceil(mRows.toDouble / numByRow.toDouble).toInt
     val mBlockColSize = math.ceil(mColumns.toDouble / numByCol.toDouble).toInt
     val blksByRow = math.ceil(mRows.toDouble / mBlockRowSize).toInt
@@ -465,14 +504,14 @@ class DenseVecMatrix(
         while (itr.hasNext) {
           val vec = itr.next()
           if (vec.vector.size != smCols) {
-            Logger.getLogger(this.getClass).
+            Logger.getLogger(getClass).
               log(Level.ERROR,"vectors:  " + input._2 +"Block Column Size dismatched" )
             throw new IOException("Block Column Size dismatched")
           }
 
           val rowOffset = vec.index.toInt - rowBase
           if (rowOffset >= smRows || rowOffset < 0) {
-            Logger.getLogger(this.getClass).log(Level.ERROR,"Block Row Size dismatched" )
+            Logger.getLogger(getClass).log(Level.ERROR,"Block Row Size dismatched" )
             throw new IOException("Block Row Size dismatched")
           }
 

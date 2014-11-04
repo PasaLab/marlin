@@ -124,7 +124,7 @@ object MTUtils {
     val rows = file.map(t =>{
       val e = t.split(":")
       val rowIndex = e(0).toLong
-      val array = e(1).split(",").map(_.toDouble)
+      val array = e(1).split(",|\\s+").map(_.toDouble)
       val vec = Vectors.dense(array)
       IndexRow(rowIndex,vec)
     })
@@ -149,10 +149,8 @@ object MTUtils {
     println("RDD length: " + file.count())
     val blocks = file.map(t =>{
         val e = t.split(":")
-//        Logger.getLogger(this.getClass).log(Level.INFO, "e length " + e.length)
-//        Logger.getLogger(this.getClass).log(Level.INFO, "e(0)  " + e(0).length + " " + e(0).charAt(0))
         val info = e(0).split("-")
-        val array = e(1).split(",").map(_.toDouble)
+        val array = e(1).split(",|\\s+").map(_.toDouble)
         (new BlockID(info(0).toInt, info(1).toInt), new BDM[Double](info(2).toInt, info(3).toInt, array))
       })
     new BlockMatrix(blocks)
@@ -176,7 +174,7 @@ object MTUtils {
       val lines = t._2.split("\n")
       lines.map( l =>{
         val content = l.split(":")
-        IndexRow( content(0).toLong, Vectors.dense( content(1).split(",").map(_.toDouble) ))
+        IndexRow( content(0).toLong, Vectors.dense( content(1).split(",|\\s+").map(_.toDouble) ))
       })
     })
     new DenseVecMatrix(rows)
@@ -201,7 +199,7 @@ object MTUtils {
       blks.map( b =>{
         val e = b.split(":")
         val info = e(0).split("-")
-        val array = e(1).split(",").map(_.toDouble)
+        val array = e(1).split(",|\\s+").map(_.toDouble)
         (new BlockID(info(0).toInt, info(1).toInt), new BDM[Double](info(2).toInt, info(3).toInt, array))
       })
     })

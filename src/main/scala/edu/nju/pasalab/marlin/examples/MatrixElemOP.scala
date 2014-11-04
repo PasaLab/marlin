@@ -44,19 +44,19 @@ object MatrixElemOP {
     matrixA.add(matrixB).rows.foreach(t => println(t.toString) )
 
     println("\nmatrix A minus matrix B:")
-    matrixA.minus(matrixB).rows.foreach(t => println(t.toString) )
+    matrixA.subtract(matrixB).rows.foreach(t => println(t.toString) )
 
     println("\nmatrix A element-wise add 2:")
-    matrixA.elemWiseAdd(2).rows.foreach(t => println(t.toString) )
+    matrixA.add(2).rows.foreach(t => println(t.toString) )
 
     println("\nmatrix A element-wise minus 2:")
-    matrixA.elemWiseMinus(2).rows.foreach(t => println(t.toString) )
+    matrixA.subtract(2).rows.foreach(t => println(t.toString) )
 
     println("\nmatrix A element-wise multiply 2:")
-    matrixA.elemWiseMult(2).rows.foreach(t => println(t.toString) )
+    matrixA.multiply(2).rows.foreach(t => println(t.toString) )
 
     println("\nmatrix A element-wise divide 2:")
-    matrixA.elemWiseDivide(2).rows.foreach(t => println(t.toString) )
+    matrixA.divide(2).rows.foreach(t => println(t.toString) )
     sc.stop()
   }
 
