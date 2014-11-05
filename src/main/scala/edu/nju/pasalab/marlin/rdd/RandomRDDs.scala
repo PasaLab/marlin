@@ -5,7 +5,7 @@ import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 
 import edu.nju.pasalab.marlin.matrix.{BlockID, IndexRow}
-import edu.nju.pasalab.marlin.utils.RandomDataGenerator
+import edu.nju.pasalab.marlin.utils.{ZerosGenerator, RandomDataGenerator}
 
 object RandomRDDs {
 
@@ -27,9 +27,26 @@ object RandomRDDs {
       numCols: Int,
       numPartitions: Int = 0,
       seed: Long = System.nanoTime()): RDD[IndexRow] = {
-    //note: numPartitions must be divided by the numRows
     new RandomDenVecRDD(
       sc, numRows, numCols, numPartitionsOrDefault(sc, numPartitions), generator, seed)
+  }
+
+  /**
+   * Generates an RDD[IndexRow] with every elements in the vector is zero.
+   *
+   * @param sc SparkContext used to create the RDD.
+   * @param numRows Number of Vectors in the RDD.
+   * @param numCols Number of elements in each Vector.
+   * @param numPartitions Number of partitions in the RDD (default: `sc.defaultParallelism`).
+   * @return
+   */
+  def zerosDenVecRDD(sc: SparkContext,
+      numRows: Long,
+      numCols: Int,
+      numPartitions: Int = 0): RDD[IndexRow] = {
+
+    new RandomDenVecRDD(
+      sc, numRows, numCols, numPartitionsOrDefault(sc, numPartitions), new ZerosGenerator())
   }
 
 

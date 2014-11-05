@@ -23,7 +23,7 @@ case class IndexRow(index: Long, vector: Vector) {
  * This class overrides from [[org.apache.spark.mllib.linalg.distributed.IndexedRow]]
  * Notice: some code in this file is copy from MLlib to make it compatible
  */
-case class IndexSparseRow( index: Long, vector: SparseVector) {
+case class IndexSparseRow(index: Long, vector: SparseVector) {
 
   /**
    * Override 'toString' method to make the content in HDFS compatible

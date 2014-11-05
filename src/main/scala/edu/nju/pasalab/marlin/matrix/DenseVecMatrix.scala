@@ -80,25 +80,25 @@ class DenseVecMatrix(
 
     val broadSize = broadcastThreshold * 1024 * 1024 / 8
     if (other.numRows() * other.numCols() <= broadSize){
-      val parallelism = Math.min(8 * cores, numRows() / 2).toInt
+      val parallelism = math.min(8 * cores, numRows() / 2).toInt
       multiplyBroadcast(other, parallelism, (parallelism, 1, 1), "broadcastB" )
     }else if ( numRows() * numCols() <= broadSize ){
-      val parallelism = Math.min(8 * cores, other.numRows() / 2).toInt
+      val parallelism = math.min(8 * cores, other.numRows() / 2).toInt
       multiplyBroadcast(other, parallelism, (1, 1, parallelism), "broadcastA" )
     }else if (0.8 < (numRows() * other.numCols()).toDouble / (numCols() * numCols()).toDouble
       && (numRows() * other.numCols()).toDouble / (numCols() * numCols()).toDouble < 1.2
       && numRows() / numCols() < 1.2
       && numRows() / numCols() > 0.8){
-      multiplyHama(other,Math.floor(Math.pow(3 * cores, 1.0/3.0 )).toInt)
+      multiplyHama(other,math.floor(math.pow(3 * cores, 1.0/3.0 )).toInt)
     }else {
       multiplyCarma(other, cores)
     }
   }
 
   /**
-   * A matrix multiply another IndexMatrix
+   * A matrix multiply another DenseVecMatrix
    *
-   * @param other another matrix in IndexMatrix format
+   * @param other another matrix in DenseVecMatrix format
    * @param blkNum is the split nums of submatries, if you set it as 10,
    *               which means you split every original large matrix into 10*10=100 blocks.
    *               The smaller this argument, the biger every worker get submatrix.
@@ -119,7 +119,7 @@ class DenseVecMatrix(
   /**
    * refer to CARMA, implement the dimension-split ways
    *
-   * @param other matrix to be multiplied, in the form of IndexMatrix
+   * @param other matrix to be multiplied, in the form of DenseVecMatrix
    * @param cores all the num of cores cross the cluster
    * @return a distributed matrix in BlockMatrix type
    */
@@ -138,7 +138,7 @@ class DenseVecMatrix(
   /**
    * refer to CARMA, implement the dimension-split ways
    *
-   * @param other matrix to be multiplied, in the form of IndexMatrix
+   * @param other matrix to be multiplied, in the form of DenseVecMatrix
    * @param parallelism all the num of cores cross the cluster
    * @param mode whether broadcast A or B
    * @return
@@ -157,7 +157,7 @@ class DenseVecMatrix(
 
   /**
    * This function is still in progress !
-   * LU decompose this IndexMatrix to generate a lower triangular matrix L
+   * LU decompose this DenseVecMatrix to generate a lower triangular matrix L
    * and a upper triangular matrix U
    *
    * @return a pair (lower triangular matrix, upper triangular matrix)
@@ -251,9 +251,9 @@ class DenseVecMatrix(
 
 
   /**
-   * This matrix add another IndexMatrix
+   * This matrix add another DenseVecMatrix
    *
-   * @param other another matrix in IndexMatrix format
+   * @param other another matrix in DenseVecMatrix format
    */
   final def add(other: DenseVecMatrix): DenseVecMatrix = {
     val nRows = numRows()
@@ -269,9 +269,9 @@ class DenseVecMatrix(
   }
 
   /**
-   * This matrix minus another IndexMatrix
+   * This matrix minus another DenseVecMatrix
    *
-   * @param other another matrix in IndexMatrix format
+   * @param other another matrix in DenseVecMatrix format
    */
   final def subtract(other: DenseVecMatrix): DenseVecMatrix = {
     require(numRows() == other.numRows(), s"Dimension mismatch: ${numRows()} vs ${other.numRows()}")
@@ -432,7 +432,7 @@ class DenseVecMatrix(
   /**
    * Save the result to the HDFS
    *
-   * @param path the path to store the IndexMatrix in HDFS
+   * @param path the path to store the DenseVecMatrix in HDFS or local file system
    */
   def saveToFileSystem(path: String){
     rows.saveAsTextFile(path)

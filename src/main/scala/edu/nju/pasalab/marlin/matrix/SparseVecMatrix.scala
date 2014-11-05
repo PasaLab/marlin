@@ -7,14 +7,20 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext._
 
 class SparseVecMatrix(
-    val sparseVecs: RDD[IndexSparseRow],
-    private val numRows: Long,
-    private val numCols: Long) {
+    val rows: RDD[IndexSparseRow],
+    val nRows: Long,
+    val nCols: Long) {
 
 
+  /**
+   * multiply another matrix in SparseVecMatrix type
+   *
+   * @param other another matrix to be multiplied in SparseVecMatrix type
+   * @param parallelism the parallelism during the multiply process
+   */
   final def multiplySparse(other: SparseVecMatrix, parallelism: Int): CoordinateMatrix = {
     val partitioner = new HashPartitioner(parallelism)
-    val thisEmits = sparseVecs.flatMap( t => {
+    val thisEmits = rows.flatMap( t => {
       val arr = new ArrayBuffer[(Long, (Long, Double))]
       val len = t.vector.indices.size
       for (i <- 0 until len){
@@ -23,7 +29,7 @@ class SparseVecMatrix(
       arr
     }).groupByKey(partitioner).cache()
 
-    val otherEmits = other.sparseVecs.flatMap(t => {
+    val otherEmits = other.rows.flatMap(t => {
       val arr = new ArrayBuffer[(Long, (Long, Double))]()
       val len = t.vector.indices.size
       for ( i <- 0 until len){
@@ -40,7 +46,6 @@ class SparseVecMatrix(
       }
       arr
     }).partitionBy(partitioner).persist().reduceByKey( _ + _)
-    new CoordinateMatrix(result, numRows, other.numCols)
+    new CoordinateMatrix(result, nRows, other.nCols)
   }
-
 }

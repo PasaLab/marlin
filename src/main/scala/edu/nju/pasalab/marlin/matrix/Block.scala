@@ -36,12 +36,10 @@ case class Block(val blockID: BlockID, val matrix: BDM[Double]) extends Serializ
  */
 class BlockID(val row: Int ,val column: Int, val seq: Int = 0) extends Serializable {
 
-
   override def equals(other: Any) :Boolean =
     other match {
       case that: BlockID =>
-        val other = that.asInstanceOf[BlockID]
-        row == other.row && column == other.column && seq == other.seq
+        row == that.row && column == that.column && seq == that.seq
       case _ => false
     }
 

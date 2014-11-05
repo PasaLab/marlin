@@ -47,7 +47,7 @@ object MTUtils {
    * @param nRows the number of rows of the whole matrix
    * @param nColumns the number of columns of the whole matrix
    * @param distribution the distribution of the elements in the matrix, default is U[0.0, 1.0]
-   * @return BlockMatrix
+   * @return DenseVecMatrix
    */
   def randomDenVecMatrix(sc: SparkContext,
       nRows: Long,
@@ -57,6 +57,22 @@ object MTUtils {
     
     val rows = RandomRDDs.randomDenVecRDD(sc, distribution, nRows, nColumns, numPartitionsOrDefault(sc, numPartitions))
     new DenseVecMatrix(rows, nRows, nColumns)  
+  }
+
+  /**
+   *  Function to generate a distributed BlockMatrix, in which every element is zero
+   *
+   * @param sc spark context
+   * @param nRows the number of rows of the whole matrix
+   * @param nColumns the number of columns of the whole matrix
+   * @return DenseVecMatrix
+   */
+  def zerosDenVecMatrix(sc: SparkContext,
+      nRows: Long,
+      nColumns: Int): DenseVecMatrix = {
+
+    val rows = RandomRDDs.zerosDenVecRDD(sc, nRows, nColumns)
+    new DenseVecMatrix(rows, nRows, nColumns)
   }
 
   /**
@@ -224,7 +240,7 @@ object MTUtils {
    * get all the content from distributed matrices which means it is expensive, so currently only
    * not so large matrix can transform to Array[Array[Double]]
    *
-   * @param mat the IndexMatrix to be transformed
+   * @param mat the DenseVecMatrix to be transformed
    * @return a local array of two dimensions           
    */
 

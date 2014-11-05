@@ -101,6 +101,7 @@ class BlockMatrix(
           //num of columns to be split of that matrix
           val nSplitNum = mat.numBlksByCol()
           val partitioner = new HashPartitioner(2 * cores)
+
           if (mSplitNum == 1 && nSplitNum == 1) {
             val result = blocks.join(mat.blocks)
               .mapPartitions( {
@@ -136,6 +137,7 @@ class BlockMatrix(
                   array
                 })
             }).partitionBy(partitioner).cache()
+
             if (kSplitNum != 1){
               val result = thisEmitBlocks.join(otherEmitBlocks)
                 .mapPartitions({
@@ -151,8 +153,11 @@ class BlockMatrix(
               new BlockMatrix(result, numRows(), other.numCols (), mSplitNum, nSplitNum)
             } else {
               val result = thisEmitBlocks.join(otherEmitBlocks)
-                .mapValues(t => (t._1.asInstanceOf[BDM[Double]] * t._2.asInstanceOf[BDM[Double]] )
-                .asInstanceOf[BDM[Double]])
+                .map(t => {
+                val mat = (t._2._1.asInstanceOf[BDM[Double]] * t._2._2.asInstanceOf[BDM[Double]])
+                  .asInstanceOf[BDM[Double]]
+                (new BlockID(t._1.row, t._1.column), mat)
+              })
               new BlockMatrix (result, numRows(), other.numCols(), mSplitNum, nSplitNum)
             }
           }
@@ -283,12 +288,11 @@ class BlockMatrix(
    */
   final def divideBy(b: Double): BlockMatrix = {
     val result = blocks.mapValues(t => {
-      val iter = t.toDenseVector.activeIterator
-      val vec = t.toDenseVector
-      for( a <- iter){
-        vec.unsafeUpdate(a._1, b / a._2)
+      val array = t.data
+      for (i <- 0 until array.length){
+        array(i)= b / array(i)
       }
-      vec.toDenseMatrix
+      BDM.create[Double](t.rows, t.cols, array)
     })
     new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
   }
@@ -355,45 +359,6 @@ class BlockMatrix(
       new BlockMatrix(result, numRows(), other.numCols(),
         numBlksByRow(), other.numBlksByCol())
     }
-//      if (splits._2 == 1) {
-//        val result = blocks.mapPartitions(iter => {
-//          val res = Array.ofDim[(BlockID, BDM[Double])](other.blksByCol)
-//          val mats = bArr.value
-//          iter.flatMap(t => {
-//            for (j <- 0 until other.blksByCol) {
-//              if (mode.toLowerCase.equals("broadcastb")) {
-//                res(j) = (new BlockID(t._1.row, j),
-//                  (t._2 * mats(t._1.column)(j)).asInstanceOf[BDM[Double]])
-//              }else {
-//                res(j) = (new BlockID(t._1.row, j),
-//                  (mats(t._1.column)(j) * t._2).asInstanceOf[BDM[Double]])
-//              }
-//            }
-//            res
-//          })
-//        })
-//        new BlockMatrix(result, numRows(), other.numCols(),
-//          numBlksByRow(), other.numBlksByCol())
-//      } else {
-//        val result = blocks.mapPartitions(iter => {
-//          val res = Array.ofDim[(BlockID, BDM[Double])](other.blksByCol)
-//          val mats = bArr.value
-//          iter.flatMap(t => {
-//            for (j <- 0 until other.blksByCol) {
-//              if (mode.toLowerCase.equals("broadcastb")) {
-//                res(j) = (new BlockID(t._1.row, j),
-//                  (t._2 * mats(t._1.column)(j)).asInstanceOf[BDM[Double]])
-//              }else {
-//                res(j) = (new BlockID(t._1.row, j),
-//                  (mats(t._1.column)(j) * t._2).asInstanceOf[BDM[Double]])
-//              }
-//            }
-//            res
-//          })
-//        }).partitionBy(new HashPartitioner(parallelism)).cache().reduceByKey(_ + _)
-//        new BlockMatrix(result, numRows(), other.numCols(),
-//          numBlksByRow(), other.numBlksByCol())
-//      }
   }
   
   /**
@@ -415,9 +380,9 @@ class BlockMatrix(
 
 
   /**
-   * transform the BlockMatrix to IndexMatrix
+   * transform the BlockMatrix to DenseVecMatrix
    *
-   * @return IndexMatrix with the same content
+   * @return DenseVecMatrix with the same content
    */
   def toDenseVecMatrix(): DenseVecMatrix = {
     val mostBlockRowLen = math.ceil( numRows().toDouble / numBlksByRow().toDouble).toInt
@@ -450,9 +415,6 @@ class BlockMatrix(
 
     new DenseVecMatrix(result)
   }
-
-
-
 
 }
 
