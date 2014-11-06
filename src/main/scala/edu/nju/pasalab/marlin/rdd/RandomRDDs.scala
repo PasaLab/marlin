@@ -4,7 +4,7 @@ import breeze.linalg.{DenseMatrix => BDM}
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 
-import edu.nju.pasalab.marlin.matrix.{BlockID, IndexRow}
+import edu.nju.pasalab.marlin.matrix.{DenseVector, BlockID, IndexRow}
 import edu.nju.pasalab.marlin.utils.{ZerosGenerator, RandomDataGenerator}
 
 object RandomRDDs {
@@ -26,7 +26,7 @@ object RandomRDDs {
       numRows: Long,
       numCols: Int,
       numPartitions: Int = 0,
-      seed: Long = System.nanoTime()): RDD[IndexRow] = {
+      seed: Long = System.nanoTime()): RDD[(Long, DenseVector)] = {
     new RandomDenVecRDD(
       sc, numRows, numCols, numPartitionsOrDefault(sc, numPartitions), generator, seed)
   }
@@ -43,7 +43,7 @@ object RandomRDDs {
   def zerosDenVecRDD(sc: SparkContext,
       numRows: Long,
       numCols: Int,
-      numPartitions: Int = 0): RDD[IndexRow] = {
+      numPartitions: Int = 0): RDD[(Long, DenseVector)] = {
 
     new RandomDenVecRDD(
       sc, numRows, numCols, numPartitionsOrDefault(sc, numPartitions), new ZerosGenerator())

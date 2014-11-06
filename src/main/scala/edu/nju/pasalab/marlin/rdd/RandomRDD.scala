@@ -45,11 +45,11 @@ private [marlin]  object RandomRDD {
   def getIndexRowIterator(
       partition: RandomRDDPartition[Double],
       vectorSize: Int,
-      rowsLength: Long): Iterator[IndexRow] = {
+      rowsLength: Long): Iterator[(Long, DenseVector)] = {
     val generator = partition.generator.copy()
     generator.setSeed(partition.seed)
     val index = (0 + partition.start until rowsLength.toInt).toIterator
-    Iterator.fill(partition.size)(IndexRow(index.next(), 
+    Iterator.fill(partition.size)((index.next(),
       new DenseVector(Array.fill(vectorSize)(generator.nextValue()))))
   }
 
@@ -74,7 +74,7 @@ private[marlin] class RandomDenVecRDD(@transient sc: SparkContext,
     vectorSize: Int,
     numPartitions: Int,
     @transient rng: RandomDataGenerator[Double],
-    @transient seed: Long = System.nanoTime()) extends RDD[IndexRow](sc, Nil){
+    @transient seed: Long = System.nanoTime()) extends RDD[(Long, DenseVector)](sc, Nil){
 
   require(nRows > 0, "Positive RDD size required.")
   require(numPartitions > 0, "Positive number of partitions required")
@@ -82,7 +82,7 @@ private[marlin] class RandomDenVecRDD(@transient sc: SparkContext,
   require(math.ceil(nRows.toDouble / numPartitions) <= Int.MaxValue,
     "Partition size cannot exceed Int.MaxValue")
 
-  override def compute(splitIn: Partition, context: TaskContext): Iterator[IndexRow] = {
+  override def compute(splitIn: Partition, context: TaskContext): Iterator[(Long, DenseVector)] = {
     val split = splitIn.asInstanceOf[RandomRDDPartition[Double]]
     RandomRDD.getIndexRowIterator(split, vectorSize, nRows)
   }

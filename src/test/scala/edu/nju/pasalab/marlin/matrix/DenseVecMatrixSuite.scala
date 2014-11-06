@@ -14,14 +14,14 @@ class DenseVecMatrixSuite extends FunSuite with LocalSparkContext{
     (1L, Vectors.dense(2.0, 3.0, 4.0, 5.0)),
     (2L, Vectors.dense(3.0, 2.0, 1.0, 0.0)),
     (3L, Vectors.dense(1.0, 1.0, 1.0, 1.0))
-  ).map(t => IndexRow(t._1, t._2))
+  ).map(t => (t._1, t._2))
   val blks = Seq(
     (new BlockID(0, 0), BDM((0.0, 1.0), (2.0, 3.0))),
     (new BlockID(0, 1), BDM((2.0, 3.0), (4.0, 5.0))),
     (new BlockID(1, 0), BDM((3.0, 2.0), (1.0, 1.0))),
     (new BlockID(1, 1), BDM((1.0, 0.0), (1.0, 1.0)))
   ).map( t => (t._1, t._2))
-  var indexRows: RDD[IndexRow] = _
+  var indexRows: RDD[(Long, DenseVector)] = _
   var blocks: RDD[(BlockID, BDM[Double])] = _
 
   override protected def beforeAll() {
@@ -38,7 +38,7 @@ class DenseVecMatrixSuite extends FunSuite with LocalSparkContext{
   }
 
   test("empty rows") {
-    val rows = sc.parallelize(Seq[IndexRow](), 1)
+    val rows = sc.parallelize(Seq[(Long, DenseVector)](), 1)
     val mat = new DenseVecMatrix(rows)
     intercept[RuntimeException] {
       mat.numRows()
@@ -96,4 +96,9 @@ class DenseVecMatrixSuite extends FunSuite with LocalSparkContext{
     assert(blkSeq.contains(new BlockID(1, 0), BDM((7.0, 11.0, 15.0, 19.0),(6.0, 7.0, 8.0, 9.0))))
   }
 
+  test("multiply a BlockMatrix"){
+    val mat = new DenseVecMatrix(indexRows)
+    val blkMat = new BlockMatrix(blocks)
+
+  }
 }

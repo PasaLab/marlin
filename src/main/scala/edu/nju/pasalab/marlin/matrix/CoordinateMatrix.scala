@@ -37,6 +37,7 @@ class CoordinateMatrix(
     }
     nCols
   }
+
   /** Gets or computes the number of rows. */
   override def numRows(): Long = {
     if (nRows <= 0L) {
@@ -44,6 +45,7 @@ class CoordinateMatrix(
     }
     nRows
   }
+
   /** Converts to IndexedRowMatrix. The number of columns must be within the integer range. */
   def toDenseVecMatrix(): DenseVecMatrix = {
     val nl = numCols()
@@ -55,7 +57,7 @@ class CoordinateMatrix(
     val indexedRows = entries.map(entry => (entry._1._1, (entry._1._2.toInt, entry._2)))
       .groupByKey()
       .map { case (i, vectorEntries) =>
-      IndexRow(i, Vectors.sparse(n, vectorEntries.toSeq))
+      (i, Vectors.dense(Vectors.sparse(n, vectorEntries.toSeq).toArray))
     }
     new DenseVecMatrix(indexedRows, numRows(), n)
   }

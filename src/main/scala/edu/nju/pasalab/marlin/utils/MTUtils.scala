@@ -142,7 +142,7 @@ object MTUtils {
       val rowIndex = e(0).toLong
       val array = e(1).split(",|\\s+").map(_.toDouble)
       val vec = Vectors.dense(array)
-      IndexRow(rowIndex,vec)
+      (rowIndex,vec)
     })
     new DenseVecMatrix(rows)
   }
@@ -190,7 +190,7 @@ object MTUtils {
       val lines = t._2.split("\n")
       lines.map( l =>{
         val content = l.split(":")
-        IndexRow( content(0).toLong, Vectors.dense( content(1).split(",|\\s+").map(_.toDouble) ))
+        ( content(0).toLong, Vectors.dense( content(1).split(",|\\s+").map(_.toDouble) ))
       })
     })
     new DenseVecMatrix(rows)
@@ -231,8 +231,8 @@ object MTUtils {
    * @return a distributed matrix in DenseVecMatrix type                  
    */
   def arrayToMatrix(sc:SparkContext , array: Array[Array[Double]] , partitions: Int = 2): DenseVecMatrix ={
-    new DenseVecMatrix( sc.parallelize(array.zipWithIndex.
-      map{ case(t,i)  => IndexRow(i, Vectors.dense(t)) },partitions) )
+    new DenseVecMatrix( sc.parallelize(array.zipWithIndex
+      .map{case(t,i)  => (i.toLong, Vectors.dense(t)) },partitions) )
   }
 
   /**
@@ -246,7 +246,7 @@ object MTUtils {
 
   def matrixToArray(mat: DenseVecMatrix ): Array[Array[Double]] ={
     val arr = Array.ofDim[Double](mat.numRows().toInt, mat.numCols().toInt)
-    mat.rows.collect().foreach( t => t.vector.toArray.copyToArray(arr(t.index.toInt)) )
+    mat.rows.collect().foreach( t => t._2.toArray.copyToArray(arr(t._1.toInt)) )
     arr
   }
 

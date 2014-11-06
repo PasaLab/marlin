@@ -1,6 +1,8 @@
 package edu.nju.pasalab.marlin.matrix
 
 import breeze.linalg.{DenseMatrix => BDM}
+import org.apache.hadoop.io.{Text, NullWritable}
+import org.apache.hadoop.mapred.TextOutputFormat
 import org.apache.spark.HashPartitioner
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext._
@@ -366,13 +368,16 @@ class BlockMatrix(
    *
    * @param path the path to store in HDFS
    * @param format if set "blockmatrix", it will store in the format of [[edu.nju.pasalab.marlin.matrix.BlockMatrix]]
-   *               , else it will store in the format of [[edu.nju.pasalab.marlin.matrix.DenseVecMatrix]]
+   *               and the data is in one-dimension column major array,
+   *               else it will store in the format of [[edu.nju.pasalab.marlin.matrix.DenseVecMatrix]]
    */
   def saveToFileSystem(path: String, format: String = " "){
     if (format.toLowerCase.equals("blockmatrix")){
-      blocks.saveAsTextFile(path)
+      blocks.map(t => (NullWritable.get(), new Text(t._1.row + "-" + t._1.column
+        + "-" + t._2.rows + "-" + t._2.cols + ":" + t._2.data.mkString(","))))
+        .saveAsHadoopFile[TextOutputFormat[NullWritable, Text]](path)
     }else {
-      toDenseVecMatrix().rows.saveAsTextFile(path)
+      toDenseVecMatrix().saveToFileSystem(path)
     }
   }
 
@@ -392,13 +397,13 @@ class BlockMatrix(
       val smRows = t._2.rows
       val smCols = t._2.cols
       val array = t._2.data
-      val arrayBuf = Array.ofDim[(Int, (Int, Array[Double]))](smRows)
+      val arrayBuf = Array.ofDim[(Long, (Int, Array[Double]))](smRows)
       for ( i <- 0 until smRows){
         val tmp = Array.ofDim[Double](smCols)
         for (j <- 0 until tmp.length){
           tmp(j) = array(j * smRows + i)
         }
-        arrayBuf(i) = ( t._1.row * mostBlockRowLen + i, (t._1.column, tmp) )
+        arrayBuf(i) = ( (t._1.row * mostBlockRowLen + i).toLong, (t._1.column, tmp) )
       }
       arrayBuf
     }).groupByKey()
@@ -410,7 +415,7 @@ class BlockMatrix(
           array( colStart + i ) = it._2(i)
         }
       }
-      new IndexRow(input._1 , Vectors.dense(array))
+      (input._1 , Vectors.dense(array))
     })
 
     new DenseVecMatrix(result)
