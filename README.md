@@ -33,57 +33,8 @@ We have already offered some examples in `edu.nju.pasalab.marlin.examples` to sh
 **Note:** `<output path>` is the file path you want to store the result matrix, this matrix is store in DenseVecMatrix Type 
 
 ##Martix Operations API in Marlin
-Currently, we have finished below APIs:
-<table>
-	<tr>
-		<td><b>Operation</b></td>
-        <td><b>API</b></td>
-	</tr>
-	<tr>
-		<td>Matrix-Matrix addition</td>
-        <td>add(B: DenseVecMatrix)</td>
-	</tr>
-	<tr>
-		<td>Matrix-Matrix minus</td>
-        <td>minus(B: DenseVecMatrix)</td>
-	</tr>
-	<tr>
-		<td>Matrix-Matrix multiplication</td>
-        <td>multiply(B: DenseVecMatrix, cores: Int)</td>
-	</tr>
-	<tr>
-		<td>Elementwise addition</td>
-        <td>elemWiseAdd(b: Double)</td>
-	</tr>
-	<tr>
-		<td>Elementwise minus</td>
-        <td>elemWiseMinus(b: Double) / elemWiseMinusBy(b: Double)</td>
-	</tr>
-	<tr>
-		<td>Elementwise multiplication</td>
-        <td>elemWiseMult(b: Double)</td>
-	</tr>
-	<tr>
-		<td>Elementwise division</td>
-        <td>elemWiseDivide(b: Double) / elemWiseDivideBy(b: Double) </td>
-	</tr>
-	<tr>
-		<td>Get submatrix according to row</td>
-        <td>sliceByRow(startRow: Long, endRow: Long)</td>
-	</tr>
-	<tr>
-		<td>Get submatrix according to column</td>
-        <td>sliceByColumn(startCol: Int, endCol: Int)</td>
-	</tr>
-	<tr>
-		<td>Get submatrix</td>
-        <td>getSubMatrix(startRow: Long, endRow: Long ,startCol: Int, endCol: Int)</td>
-	</tr>
-	<tr>
-		<td>LU decomposition</td>
-        <td>LUDecompose(mode: String = "auto")</td>
-	</tr>
-</table>   
+Currently, we have finished some APIs, you can find documentation in this [page](https://github.com/PasaLab/marlin/wiki/Linear-Algebra-Cheat-Sheet).
+
 
 ##Algorithms and Performance Evaluation
 The details of the matrix multiplication algorithm is [here](https://github.com/PasaLab/marlin/wiki/Matrix-multiply-algorithm).
