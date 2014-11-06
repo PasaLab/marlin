@@ -50,7 +50,7 @@ object LUdec {
 //    println("start save the L into file system")
 //    result._1.saveToFileSystem("hdfs://master:54300/luDecomposeL")
     println("upper matrix rows: "+ result._2.rows.count())
-    println("upper matrix first row size: "+ result._2.rows.first.vector.size)
+    println("upper matrix first row size: "+ result._2.rows.first._2.size)
 //    val l = MTUtils.loadMatrixFiles(sc, "hdfs://master:54300/luDecomposeL")
 //    val u = MTUtils.loadMatrixFiles(sc, "hdfs://master:54300/luDecomposeU")
 //    val mat = l.multiply(u,2)

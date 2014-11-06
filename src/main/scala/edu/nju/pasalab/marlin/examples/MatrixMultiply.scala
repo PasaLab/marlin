@@ -5,7 +5,7 @@ import com.esotericsoftware.kryo.Kryo
 import org.apache.spark.serializer.KryoRegistrator
 import org.apache.spark.{SparkContext, SparkConf}
 
-import edu.nju.pasalab.marlin.matrix.{BlockID, IndexRow, Block}
+import edu.nju.pasalab.marlin.matrix.BlockID
 import edu.nju.pasalab.marlin.utils.MTUtils
 
 /**
@@ -54,8 +54,6 @@ object MatrixMultiply {
 
 class MyRegistrator extends KryoRegistrator{
   override def registerClasses(kryo: Kryo){
-    kryo.register(classOf[Block])
-    kryo.register(classOf[IndexRow])
     kryo.register(classOf[BlockID])
     kryo.register(classOf[BDM[Double]])
   }

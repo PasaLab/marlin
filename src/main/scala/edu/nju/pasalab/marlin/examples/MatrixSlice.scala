@@ -19,7 +19,7 @@ object MatrixSlice {
        (2L, Vectors.dense(3.0, 3.0, 3.0, 3.0, 3.0, 3.0)),
        (3L, Vectors.dense(4.0, 4.0, 4.0, 4.0, 4.0, 4.0)),
        (4L, Vectors.dense(5.0, 5.0, 5.0, 5.0, 5.0, 5.0))
-     ).map( x => IndexRow(x._1 , x._2))
+     ).map( x => (x._1 , x._2))
      val rows = sc.parallelize(data,2)
      val matrix = new DenseVecMatrix(rows)
      println("matrix contents (rows and columns index both start from 0):")
