@@ -70,6 +70,58 @@ class DenseVecMatrixSuite extends FunSuite with LocalSparkContext{
     assert(blkSeq.contains(new BlockID(1, 1), BDM((1.0, 0.0),(1.0, 1.0))))
   }
 
+  test("Matrix-matrix and element-wise addition/subtract; element-wise multiply and divide"){
+    val mat = new DenseVecMatrix(indexRows)
+    val eleAdd1 = BDM(
+      (1.0, 2.0, 3.0, 4.0),
+      (3.0, 4.0, 5.0, 6.0),
+      (4.0, 3.0, 2.0, 1.0),
+      (2.0, 2.0, 2.0, 2.0))
+
+    val addSelf = BDM(
+      (0.0, 2.0, 4.0, 6.0),
+      (4.0, 6.0, 8.0, 10.0),
+      (6.0, 4.0, 2.0, 0.0),
+      (2.0, 2.0, 2.0, 2.0))
+
+    val eleSubtract1 = BDM(
+      (-1.0, 0.0, 1.0, 2.0),
+      (1.0, 2.0, 3.0, 4.0),
+      (2.0, 1.0, 0.0, -1.0),
+      (0.0, 0.0, 0.0, 0.0))
+
+    val divide2 = BDM(
+      (0.0, 0.5, 1.0, 1.5),
+      (1.0, 1.5, 2.0, 2.5),
+      (1.5, 1.0, 0.5, 0.0),
+      (0.5, 0.5, 0.5, 0.5))
+
+    assert(mat.add(1).toBreeze() === eleAdd1)
+    assert(mat.add(mat).toBreeze() === addSelf)
+    assert(mat.subtract(1).toBreeze() === eleSubtract1)
+    assert(mat.subtract(mat).toBreeze() === BDM.zeros[Double](4, 4))
+    assert(mat.multiply(2).toBreeze() === addSelf)
+    assert(mat.divide(2).toBreeze() === divide2)
+  }
+
+  test("slice the matrix") {
+    val mat = new DenseVecMatrix(indexRows)
+    val sliceRow1To2 = BDM(
+      (2.0, 3.0, 4.0, 5.0),
+      (3.0, 2.0, 1.0, 0.0))
+    val sliceCol1To2 = BDM(
+      (1.0, 2.0),
+      (3.0, 4.0),
+      (2.0, 1.0),
+      (1.0, 1.0))
+    val sub1212 = BDM(
+      (3.0, 4.0),
+      (2.0, 1.0))
+    assert(mat.sliceByRow(1, 2).toBreeze() === sliceRow1To2)
+    assert(mat.sliceByColumn(1, 2).toBreeze() === sliceCol1To2)
+    assert(mat.getSubMatrix(1, 2, 1, 2).toBreeze() === sub1212)
+  }
+
   test("multiply a DenseVecMatrix in CARMA-approach") {
     val mat = new DenseVecMatrix(indexRows)
     val result = mat.multiplyCarma(mat, 2)
@@ -99,6 +151,12 @@ class DenseVecMatrixSuite extends FunSuite with LocalSparkContext{
   test("multiply a BlockMatrix"){
     val mat = new DenseVecMatrix(indexRows)
     val blkMat = new BlockMatrix(blocks)
-
+    val result = mat.multiply(blkMat, 2)
+    val blkSeq = result.blocks.collect().toSeq
+    assert(blkSeq.contains(new BlockID(0, 0), BDM((11.0, 10.0, 9.0,  8.0),(23.0, 24.0, 25.0, 26.0))))
+    assert(blkSeq.contains(new BlockID(1, 0), BDM((7.0, 11.0, 15.0, 19.0),(6.0, 7.0, 8.0, 9.0))))
   }
+
+
+
 }

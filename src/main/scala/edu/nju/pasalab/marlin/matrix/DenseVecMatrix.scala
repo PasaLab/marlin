@@ -379,7 +379,7 @@ class DenseVecMatrix(
     require((startRow >= 0 && endRow <= numRows() && startRow <= endRow),
       s"start row or end row mismatch the matrix num of rows")
 
-    new DenseVecMatrix(rows.filter(t => (t._1 >= startRow && t._1 <= endRow))
+    new DenseVecMatrix(rows.filter(t => (t._1 >= startRow && t._1 <= endRow)).map(t => (t._1 - startRow, t._2))
       , endRow - startRow + 1, numCols())
   }
 
@@ -412,7 +412,7 @@ class DenseVecMatrix(
 
     new DenseVecMatrix(rows
       .filter(t => (t._1 >= startRow && t._1 <= endRow))
-      .map(t => (t._1, Vectors.dense(t._2.toArray.slice(startCol,endCol + 1))))
+      .map(t => (t._1 - startRow, Vectors.dense(t._2.toArray.slice(startCol,endCol + 1))))
     , endRow - startRow + 1, endCol - startCol + 1)
   }
 
