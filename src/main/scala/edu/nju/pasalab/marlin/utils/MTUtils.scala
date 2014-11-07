@@ -52,8 +52,8 @@ object MTUtils {
   def randomDenVecMatrix(sc: SparkContext,
       nRows: Long,
       nColumns: Int,
-      numPartitions: Int = 0,
-      distribution: RandomDataGenerator[Double] = new UniformGenerator(0.0, 1.0)): DenseVecMatrix = {
+      distribution: RandomDataGenerator[Double] = new UniformGenerator(0.0, 1.0),
+      numPartitions: Int = 0): DenseVecMatrix = {
     
     val rows = RandomRDDs.randomDenVecRDD(sc, distribution, nRows, nColumns, numPartitionsOrDefault(sc, numPartitions))
     new DenseVecMatrix(rows, nRows, nColumns)  
@@ -140,7 +140,7 @@ object MTUtils {
     val rows = file.map(t =>{
       val e = t.split(":")
       val rowIndex = e(0).toLong
-      val array = e(1).split(",|\\s+").map(_.toDouble)
+      val array = e(1).split(",\\s+|\\s+").map(_.toDouble)
       val vec = Vectors.dense(array)
       (rowIndex,vec)
     })
@@ -166,7 +166,7 @@ object MTUtils {
     val blocks = file.map(t =>{
         val e = t.split(":")
         val info = e(0).split("-")
-        val array = e(1).split(",|\\s+").map(_.toDouble)
+        val array = e(1).split(",\\s+|\\s+").map(_.toDouble)
         (new BlockID(info(0).toInt, info(1).toInt), new BDM[Double](info(2).toInt, info(3).toInt, array))
       })
     new BlockMatrix(blocks)
@@ -190,7 +190,7 @@ object MTUtils {
       val lines = t._2.split("\n")
       lines.map( l =>{
         val content = l.split(":")
-        ( content(0).toLong, Vectors.dense( content(1).split(",|\\s+").map(_.toDouble) ))
+        ( content(0).toLong, Vectors.dense( content(1).split(",\\s+|\\s+").map(_.toDouble) ))
       })
     })
     new DenseVecMatrix(rows)
@@ -215,7 +215,7 @@ object MTUtils {
       blks.map( b =>{
         val e = b.split(":")
         val info = e(0).split("-")
-        val array = e(1).split(",|\\s+").map(_.toDouble)
+        val array = e(1).split(",\\s+|\\s+").map(_.toDouble)
         (new BlockID(info(0).toInt, info(1).toInt), new BDM[Double](info(2).toInt, info(3).toInt, array))
       })
     })

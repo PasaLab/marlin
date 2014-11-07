@@ -6,7 +6,7 @@ import breeze.linalg.{DenseMatrix => BDM}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{Partition, SparkContext, TaskContext}
 
-import edu.nju.pasalab.marlin.matrix.{BlockID, DenseVector, IndexRow}
+import edu.nju.pasalab.marlin.matrix.{BlockID, DenseVector}
 import edu.nju.pasalab.marlin.utils.RandomDataGenerator
 
 private[marlin] class RandomRDDPartition[T](override val index: Int,
@@ -42,7 +42,7 @@ private [marlin]  object RandomRDD {
   
   // The RNG has to be reset every time the iterator is requested to guarantee same data
   // every time the content of the RDD is examined.
-  def getIndexRowIterator(
+  def getDenseVecIterator(
       partition: RandomRDDPartition[Double],
       vectorSize: Int,
       rowsLength: Long): Iterator[(Long, DenseVector)] = {
@@ -84,7 +84,7 @@ private[marlin] class RandomDenVecRDD(@transient sc: SparkContext,
 
   override def compute(splitIn: Partition, context: TaskContext): Iterator[(Long, DenseVector)] = {
     val split = splitIn.asInstanceOf[RandomRDDPartition[Double]]
-    RandomRDD.getIndexRowIterator(split, vectorSize, nRows)
+    RandomRDD.getDenseVecIterator(split, vectorSize, nRows)
   }
 
   override protected def getPartitions: Array[Partition] = {

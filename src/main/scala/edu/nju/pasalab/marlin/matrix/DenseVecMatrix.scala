@@ -65,35 +65,44 @@ class DenseVecMatrix(
   }
 
   /**
+   * Matrix-matrix multiply
    *
-   * @param other another matrix in DenseVecMatrix type
+   * @param other another matrix
    * @param cores the real num of cores you set in the environment
    * @param broadcastThreshold the threshold of broadcasting variable, default num is 300 MB,
    *                           user can set it, the unit of this parameter is MB
    * @return result in BlockMatrix type
    */
 
-  final def multiply(other: DenseVecMatrix,
+  final def multiply(other: DistributedMatrix,
             cores: Int,
             broadcastThreshold: Int = 300): BlockMatrix = {
-    require(numCols == other.numRows(),
-      s"Dimension mismatch: ${numCols} vs ${other.numRows()}")
+    other match {
+      case that: DenseVecMatrix => {
+        require(numCols == that.numRows(),
+          s"Dimension mismatch: ${numCols()} vs ${that.numRows()}")
 
-    val broadSize = broadcastThreshold * 1024 * 1024 / 8
-    if (other.numRows() * other.numCols() <= broadSize){
-      val parallelism = math.min(8 * cores, numRows() / 2).toInt
-      multiplyBroadcast(other, parallelism, (parallelism, 1, 1), "broadcastB" )
-    }else if ( numRows() * numCols() <= broadSize ){
-      val parallelism = math.min(8 * cores, other.numRows() / 2).toInt
-      multiplyBroadcast(other, parallelism, (1, 1, parallelism), "broadcastA" )
-    }else if (0.8 < (numRows() * other.numCols()).toDouble / (numCols() * numCols()).toDouble
-      && (numRows() * other.numCols()).toDouble / (numCols() * numCols()).toDouble < 1.2
-      && numRows() / numCols() < 1.2
-      && numRows() / numCols() > 0.8){
-      multiplyHama(other,math.floor(math.pow(3 * cores, 1.0/3.0 )).toInt)
-    }else {
-      multiplyCarma(other, cores)
+        val broadSize = broadcastThreshold * 1024 * 1024 / 8
+        if (that.numRows() * that.numCols() <= broadSize) {
+          val parallelism = math.min(8 * cores, numRows() / 2).toInt
+          multiplyBroadcast(that, parallelism, (parallelism, 1, 1), "broadcastB")
+        } else if (numRows() * numCols() <= broadSize) {
+          val parallelism = math.min(8 * cores, that.numRows() / 2).toInt
+          multiplyBroadcast(that, parallelism, (1, 1, parallelism), "broadcastA")
+        } else if (0.8 < (numRows() * that.numCols()).toDouble / (numCols() * numCols()).toDouble
+          && (numRows() * that.numCols()).toDouble / (numCols() * numCols()).toDouble < 1.2
+          && numRows() / numCols() < 1.2
+          && numRows() / numCols() > 0.8) {
+          multiplyHama(that, math.floor(math.pow(3 * cores, 1.0 / 3.0)).toInt)
+        } else {
+          multiplyCarma(that, cores)
+        }
+      }
+      case that: BlockMatrix => {
+        multiply(that.toDenseVecMatrix(), cores)
+      }
     }
+
   }
 
   /**
@@ -252,33 +261,50 @@ class DenseVecMatrix(
 
 
   /**
-   * This matrix add another DenseVecMatrix
+   * This matrix add another DistributedMatrix
    *
    * @param other another matrix in DenseVecMatrix format
    */
-  final def add(other: DenseVecMatrix): DenseVecMatrix = {
-    val nRows = numRows()
-    val otherRows = other.numRows()
-    require(nRows == otherRows, s"Dimension mismatch: ${nRows} vs ${otherRows}")
-    require(numCols == other.numCols, s"Dimension mismatch: ${numCols} vs ${other.numCols}")
+  final def add(other: DistributedMatrix): DenseVecMatrix = {
+    other match {
+      case that: DenseVecMatrix => {
+        require(numRows() == that.numRows(), s"Dimension mismatch: ${numRows()} vs ${that.numRows()}")
+        require(numCols() == that.numCols, s"Dimension mismatch: ${numCols()} vs ${that.numCols()}")
 
-    val result = rows.join(other.rows).map(t =>
-      (t._1, Vectors.fromBreeze((t._2._1.toBreeze + t._2._2.toBreeze).asInstanceOf[BDV[Double]])))
-    new DenseVecMatrix(result, numRows(), numCols())
+        val result = rows.join(that.rows).map(t =>
+          (t._1, Vectors.fromBreeze((t._2._1.toBreeze + t._2._2.toBreeze).asInstanceOf[BDV[Double]])))
+        new DenseVecMatrix(result, numRows(), numCols())
+      }
+      case that: BlockMatrix => {
+        add(that.toDenseVecMatrix())
+      }
+      case that: DistributedMatrix => {
+        throw new IllegalArgumentException("Do not support this type " + that.getClass + "for add operation" )
+      }
+    }
+
   }
 
   /**
-   * This matrix minus another DenseVecMatrix
+   * This matrix minus another DistributedMatrix
    *
    * @param other another matrix in DenseVecMatrix format
    */
-  final def subtract(other: DenseVecMatrix): DenseVecMatrix = {
-    require(numRows() == other.numRows(), s"Dimension mismatch: ${numRows()} vs ${other.numRows()}")
-    require(numCols == other.numCols, s"Dimension mismatch: ${numCols} vs ${other.numCols()}")
+  final def subtract(other: DistributedMatrix): DenseVecMatrix = {
+    other match {
+      case that: DenseVecMatrix => {
+        require(numRows() == that.numRows(), s"Dimension mismatch: ${numRows()} vs ${other.numRows()}")
+        require(numCols == that.numCols, s"Dimension mismatch: ${numCols()} vs ${other.numCols()}")
 
-    val result = rows.join(other.rows).map(t =>
-      (t._1, Vectors.fromBreeze((t._2._1.toBreeze - t._2._2.toBreeze).asInstanceOf[BDV[Double]])))
-    new DenseVecMatrix(result, numRows(), numCols())
+        val result = rows.join(that.rows).map(t =>
+          (t._1, Vectors.fromBreeze((t._2._1.toBreeze - t._2._2.toBreeze).asInstanceOf[BDV[Double]])))
+        new DenseVecMatrix(result, numRows(), numCols())
+      }
+      case that: BlockMatrix => {
+        subtract(that.toDenseVecMatrix())
+      }
+    }
+
   }
 
 

@@ -2,7 +2,7 @@ package edu.nju.pasalab.marlin.examples
 
 import org.apache.spark.{SparkContext, SparkConf}
 
-import edu.nju.pasalab.marlin.matrix.{DenseVecMatrix, IndexRow, Vectors}
+import edu.nju.pasalab.marlin.matrix.{DenseVecMatrix, Vectors}
 
 /**
  * Test element-element wise operations

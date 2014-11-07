@@ -2,7 +2,7 @@ package edu.nju.pasalab.marlin.examples
 
 import org.apache.spark.{SparkContext, SparkConf}
 
-import edu.nju.pasalab.marlin.matrix.{DenseVecMatrix, IndexRow, Vectors}
+import edu.nju.pasalab.marlin.matrix.{DenseVecMatrix, Vectors}
 
 /**
  * Test get sub matrix by row or column

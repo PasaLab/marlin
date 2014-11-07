@@ -4,13 +4,13 @@ import breeze.linalg.{DenseMatrix => BDM}
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 
-import edu.nju.pasalab.marlin.matrix.{DenseVector, BlockID, IndexRow}
+import edu.nju.pasalab.marlin.matrix.{DenseVector, BlockID}
 import edu.nju.pasalab.marlin.utils.{ZerosGenerator, RandomDataGenerator}
 
 object RandomRDDs {
 
   /**
-   * Generates an RDD[IndexRow] with vectors containing i.i.d. samples produced by the
+   * Generates an RDD[(Long, DenseVector)] with vectors containing i.i.d. samples produced by the
    * input RandomDataGenerator.
    *
    * @param sc SparkContext used to create the RDD.
@@ -19,7 +19,7 @@ object RandomRDDs {
    * @param numCols Number of elements in each Vector.
    * @param numPartitions Number of partitions in the RDD (default: `sc.defaultParallelism`).
    * @param seed Random seed (default: a random long integer).
-   * @return RDD[IndexRow] with vectors containing i.i.d. samples produced by generator.
+   * @return RDD[(Long, DenseVector)] with vectors containing i.i.d. samples produced by generator.
    */
   def randomDenVecRDD(sc: SparkContext,
       generator: RandomDataGenerator[Double],
@@ -32,7 +32,7 @@ object RandomRDDs {
   }
 
   /**
-   * Generates an RDD[IndexRow] with every elements in the vector is zero.
+   * Generates an RDD[(Long, DenseVector)] with every elements in the vector is zero.
    *
    * @param sc SparkContext used to create the RDD.
    * @param numRows Number of Vectors in the RDD.

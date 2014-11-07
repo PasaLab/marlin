@@ -29,7 +29,7 @@ object LUdec {
 //      (0L, Vectors.dense(1.0,2.0,3.0)),
 //      (1L, Vectors.dense(4.0,5.0,6.0)),
 //      (2L, Vectors.dense(7.0,8.0,0.0))
-//    ).map(t => IndexRow(t._1 , t._2))
+//    ).map(t => (t._1 , t._2))
 //
 //    val mat = new IndexMatrix( sc.parallelize(data,2) )
 
