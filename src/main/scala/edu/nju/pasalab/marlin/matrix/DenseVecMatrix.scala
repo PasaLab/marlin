@@ -24,8 +24,6 @@ class DenseVecMatrix(
     private var nRows: Long,
     private var nCols: Long) extends DistributedMatrix{
 
-
-
   private var resultCols:Long = 0
   def this(rows: RDD[(Long, DenseVector)]) = this(rows, 0L, 0)
 
@@ -457,9 +455,18 @@ class DenseVecMatrix(
    *
    * @param path the path to store the DenseVecMatrix in HDFS or local file system
    */
-  def saveToFileSystem(path: String){
+  def saveToFileSystem(path: String) {
     rows.map(t => (NullWritable.get(), new Text(t._1 + ":" + t._2.toString)))
       .saveAsHadoopFile[TextOutputFormat[NullWritable, Text]](path)
+  }
+
+  /**
+   * A simple wraper of saving the DenseVecMatrix to SequenceFile
+   *
+   * @param path matrix file path
+   */
+  def saveSequenceFile(path: String) {
+    rows.saveAsSequenceFile(path)
   }
 
   /**

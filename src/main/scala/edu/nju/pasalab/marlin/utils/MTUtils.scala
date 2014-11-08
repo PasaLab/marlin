@@ -6,6 +6,7 @@ import scala.util.hashing.MurmurHash3
 
 import breeze.linalg.{DenseMatrix => BDM}
 import org.apache.spark.SparkContext
+import org.apache.spark.SparkContext._
 
 import edu.nju.pasalab.marlin.matrix._
 import edu.nju.pasalab.marlin.rdd.RandomRDDs
@@ -128,15 +129,15 @@ object MTUtils {
    *
    * @param sc the running SparkContext
    * @param path the path where store the matrix
-   * @param minPartition the min num of partitions of the matrix to load in Spark
+   * @param minPartitions the min num of partitions of the matrix to load in Spark
    * @return a distributed matrix in DenseVecMatrix type                    
    */
-  def loadMatrixFile(sc: SparkContext, path: String, minPartition: Int = 4): DenseVecMatrix = {
+  def loadMatrixFile(sc: SparkContext, path: String, minPartitions: Int = 4): DenseVecMatrix = {
     if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://") && !path.startsWith("file://")) {
       System.err.println("the path is not in local file System, HDFS or Tachyon")
       System.exit(1)
     }
-    val file = sc.textFile(path, minPartition)
+    val file = sc.textFile(path, minPartitions)
     val rows = file.map(t =>{
       val e = t.split(":")
       val rowIndex = e(0).toLong
@@ -147,21 +148,34 @@ object MTUtils {
     new DenseVecMatrix(rows)
   }
 
+  /**
+   * Load DenseVecMatrix from sequence file, the original sequenceFile is key-value pair stored,
+   * key is index in `Long` type, value is `DenseVector`
+   * 
+   *@param sc the running SparkContext
+   * @param path the path where store the matrix
+   * @param minPartitions the min num of partitions of the matrix to load in Spark
+   */
+  def loadMatrixSeqFile(sc: SparkContext, path: String, minPartitions: Int = 0): DenseVecMatrix = {
+    val result = sc.sequenceFile[Long, DenseVector](path, numPartitionsOrDefault(sc, minPartitions))
+    new DenseVecMatrix(result)
+  }
+
 
   /**
    * Function to load block matrix from file
    *
    * @param sc the running SparkContext
    * @param path the path where store the matrix
-   * @param minPartition the min num of partitions of the matrix to load in Spark
+   * @param minPartitions the min num of partitions of the matrix to load in Spark
    * @return a distributed matrix in BlockMatrix type 
    */
-  def loadBlockMatrixFile(sc: SparkContext, path: String, minPartition: Int = 4): BlockMatrix = {
+  def loadBlockMatrixFile(sc: SparkContext, path: String, minPartitions: Int = 4): BlockMatrix = {
     if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://") && !path.startsWith("file://")) {
       System.err.println("the path is not in local file System, HDFS or Tachyon")
       System.exit(1)
     }
-    val file = sc.textFile(path, minPartition)
+    val file = sc.textFile(path, minPartitions)
     println("RDD length: " + file.count())
     val blocks = file.map(t =>{
         val e = t.split(":")
@@ -177,15 +191,15 @@ object MTUtils {
    *
    * @param sc the running SparkContext
    * @param path the path where store the matrix
-   * @param minPartition the min num of partitions of the matrix to load in Spark
+   * @param minPartitions the min num of partitions of the matrix to load in Spark
    * @return a distributed matrix in DenseVecMatrix type                    
    */
-  def loadMatrixFiles(sc: SparkContext, path: String, minPartition: Int = 4): DenseVecMatrix = {
+  def loadMatrixFiles(sc: SparkContext, path: String, minPartitions: Int = 4): DenseVecMatrix = {
     if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://") && !path.startsWith("file://")) {
       System.err.println("the path is not in local file System, HDFS or Tachyon")
       System.exit(1)
     }
-    val files = sc.wholeTextFiles(path, minPartition)
+    val files = sc.wholeTextFiles(path, minPartitions)
     val rows = files.flatMap(t =>{
       val lines = t._2.split("\n")
       lines.map( l =>{
@@ -201,15 +215,15 @@ object MTUtils {
    *
    * @param sc the running SparkContext
    * @param path the path where store the matrix
-   * @param minPartition the min num of partitions of the matrix to load in Spark
+   * @param minPartitions the min num of partitions of the matrix to load in Spark
    * @return a disrtibuted matrix in BlockMatrix type                    
    */
-  def loadBlockMatrixFiles(sc: SparkContext, path: String, minPartition: Int = 4): BlockMatrix = {
+  def loadBlockMatrixFiles(sc: SparkContext, path: String, minPartitions: Int = 4): BlockMatrix = {
     if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://") && !path.startsWith("file://")) {
       System.err.println("the path is not in local file System, HDFS or Tachyon")
       System.exit(1)
     }
-    val file = sc.wholeTextFiles(path, minPartition)
+    val file = sc.wholeTextFiles(path, minPartitions)
     val blocks = file.flatMap(t =>{
       val blks = t._2.split("\n")
       blks.map( b =>{
@@ -258,7 +272,7 @@ object MTUtils {
     if (numPartitions > 0) numPartitions
     else if (!sc.getConf.getOption("spark.default.parallelism").isEmpty) {
       sc.getConf.get("spark.default.parallelism").toInt
-    }else sc.defaultMinPartitions
-
+    }else 
+      sc.defaultMinPartitions
   }
 }

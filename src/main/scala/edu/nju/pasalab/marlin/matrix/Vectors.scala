@@ -3,6 +3,7 @@ package edu.nju.pasalab.marlin.matrix
  * Notice: the code in this file is copy from MLlib, to make it compatible
  */
 
+import java.io.{DataOutput, DataInput}
 import java.lang.{Iterable => JavaIterable, Integer => JavaInteger, Double => JavaDouble}
 import java.util.Arrays
 
@@ -10,11 +11,12 @@ import scala.annotation.varargs
 import scala.collection.JavaConverters._
 
 import breeze.linalg.{Vector => BV, DenseVector => BDV, SparseVector => BSV}
+import org.apache.hadoop.io.Writable
 
 /**
  * Represents a numeric vector, whose index type is Int and value type is Double.
  */
-trait Vector extends Serializable {
+trait Vector extends Serializable  with Writable {
 
   /**
    * Size of the vector.
@@ -43,16 +45,14 @@ trait Vector extends Serializable {
 
   /**
    * Gets the value of the ith element.
-   * tem remove matrixlib
    * @param i index
    */
   private[matrix] def apply(i: Int): Double = toBreeze(i)
 }
 
 /**
- * Factory methods for [[org.apache.spark.mllib.linalg.Vector]].
- * We don't use the name `Vector` because Scala imports
- * [[scala.collection.immutable.Vector]] by default.
+ * Factory methods for [[edu.nju.pasalab.marlin.matrix.Vector]].
+ *
  */
 object Vectors {
 
@@ -137,7 +137,13 @@ object Vectors {
 /**
  * A dense vector represented by a value array.
  */
-class DenseVector(val values: Array[Double]) extends Vector {
+class DenseVector extends Vector  {
+  var values: Array[Double] = null
+
+  def this(array: Array[Double]) {
+    this()
+    values = array
+  }
 
   override def size: Int = values.length
 
@@ -148,20 +154,40 @@ class DenseVector(val values: Array[Double]) extends Vector {
   private[matrix]  def toBreeze: BV[Double] = new BDV[Double](values)
 
   override def apply(i: Int) = values(i)
+
+  override def write(out: DataOutput) {
+    out.writeInt(values.length)
+    for (v <- values){
+      out.writeDouble(v)
+    }
+  }
+
+  override def readFields(in: DataInput)  {
+    val length = in.readInt()
+    values = Array.ofDim[Double](length)
+    for (i <- 0 until length){
+      values(i) = in.readDouble()
+    }
+  }
 }
 
 /**
  * A sparse vector represented by an index array and an value array.
  *
- * @param size size of the vector.
- * @param indices index array, assume to be strictly increasing.
- * @param values value array, must have the same length as the index array.
  */
-class SparseVector(
-                    override val size: Int,
-                    val indices: Array[Int],
-                    val values: Array[Double]) extends Vector {
+class SparseVector extends Vector {
+  var length = 0
+  var indices: Array[Int] = null
+  var values: Array[Double] = null
 
+  override def size: Int = length
+
+  def this(size: Int, indices: Array[Int], values: Array[Double]) {
+    this()
+    length = size
+    this.indices = indices
+    this.values = values
+  }
   override def toString: String = {
     "(" + size + "," + indices.zip(values).mkString("[", "," ,"]") + ")"
   }
@@ -178,5 +204,33 @@ class SparseVector(
   }
 
   private[matrix]  def toBreeze: BV[Double] = new BSV[Double](indices, values, size)
+
+  override def write(out: DataOutput) {
+    out.writeInt(length)
+    out.writeInt(indices.length)
+    out.writeInt(values.length)
+    for ( i <- indices){
+      out.writeInt(i)
+    }
+    for ( v <- values) {
+      out.writeDouble(v)
+    }
+  }
+
+  override def readFields(in: DataInput) {
+    length = in.readInt()
+    val indexLen = in.readInt()
+    val valLen = in.readInt()
+    indices = Array.ofDim[Int](indexLen)
+    values = Array.ofDim[Double](valLen)
+
+    for (i <- 0 until indexLen){
+      indices(i) = in.readInt()
+    }
+
+    for (i <- 0 until valLen){
+      values(i) = in.readDouble()
+    }
+  }
 }
 
