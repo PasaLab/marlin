@@ -141,7 +141,7 @@ object MTUtils {
     val rows = file.map(t =>{
       val e = t.split(":")
       val rowIndex = e(0).toLong
-      val array = e(1).split(",\\s+|\\s+").map(_.toDouble)
+      val array = e(1).split(",\\s?|\\s+").map(_.toDouble)
       val vec = Vectors.dense(array)
       (rowIndex,vec)
     })
@@ -151,7 +151,7 @@ object MTUtils {
   /**
    * Load DenseVecMatrix from sequence file, the original sequenceFile is key-value pair stored,
    * key is index in `Long` type, value is `DenseVector`
-   * 
+   * s
    *@param sc the running SparkContext
    * @param path the path where store the matrix
    * @param minPartitions the min num of partitions of the matrix to load in Spark
@@ -180,7 +180,7 @@ object MTUtils {
     val blocks = file.map(t =>{
         val e = t.split(":")
         val info = e(0).split("-")
-        val array = e(1).split(",\\s+|\\s+").map(_.toDouble)
+        val array = e(1).split(",\\s?|\\s+").map(_.toDouble)
         (new BlockID(info(0).toInt, info(1).toInt), new BDM[Double](info(2).toInt, info(3).toInt, array))
       })
     new BlockMatrix(blocks)
@@ -204,7 +204,7 @@ object MTUtils {
       val lines = t._2.split("\n")
       lines.map( l =>{
         val content = l.split(":")
-        ( content(0).toLong, Vectors.dense( content(1).split(",\\s+|\\s+").map(_.toDouble) ))
+        ( content(0).toLong, Vectors.dense( content(1).split(",\\s?|\\s+").map(_.toDouble) ))
       })
     })
     new DenseVecMatrix(rows)
@@ -229,7 +229,7 @@ object MTUtils {
       blks.map( b =>{
         val e = b.split(":")
         val info = e(0).split("-")
-        val array = e(1).split(",\\s+|\\s+").map(_.toDouble)
+        val array = e(1).split(",\\s?|\\s+").map(_.toDouble)
         (new BlockID(info(0).toInt, info(1).toInt), new BDM[Double](info(2).toInt, info(3).toInt, array))
       })
     })
