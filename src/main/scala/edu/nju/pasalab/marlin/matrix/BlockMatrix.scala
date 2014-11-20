@@ -175,7 +175,7 @@ class BlockMatrix(
               (t._1, (t._2 * broadBDM.value).asInstanceOf[BDM[Double]])
             })
           })
-         new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
+         new BlockMatrix(result, numRows(), mat.numCols(), numBlksByRow(), numBlksByCol())
         }else {
           toDenseVecMatrix().multiply(mat, cores)
         }
