@@ -16,7 +16,7 @@ We have offered a default `build.sbt` file, make sure you have installed [sbt](h
 ##Run Marlin
 We have already offered some examples in `edu.nju.pasalab.marlin.examples` to show how to use the APIs in the project. For example, if you want to run two large matrices multiplication, use spark-submit method, and type in command
  
-	$.bin/spark-submit \
+	$./bin/spark-submit \
 	 --class edu.nju.pasalab.marlin.examples.MatrixMultiply
 	 --master <master-url> \
 	 --executor-memory <memory> \

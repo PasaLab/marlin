@@ -166,7 +166,19 @@ class BlockMatrix(
         }
       }
       case mat: DenseVecMatrix => {
-        toDenseVecMatrix().multiply(mat, cores)
+        // if the other matrix is small, just broadcast it, it is benefitical when several matrices multiplication
+        val broadSize = 300 * 1024 * 1024 / 8
+        if (mat.numRows() * mat.numCols() < broadSize){
+         val broadBDM = blocks.context.broadcast(mat.toBreeze())
+         val result = blocks.mapPartitions( iter => {
+            iter.map( t => {
+              (t._1, (t._2 * broadBDM.value).asInstanceOf[BDM[Double]])
+            })
+          })
+         new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
+        }else {
+          toDenseVecMatrix().multiply(mat, cores)
+        }
       }
     }
   }
