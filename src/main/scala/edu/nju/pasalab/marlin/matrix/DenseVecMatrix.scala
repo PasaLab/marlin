@@ -98,7 +98,7 @@ class DenseVecMatrix(
       }
       case that: BlockMatrix => {
         val broadSize = broadcastThreshold * 1024 * 1024 / 8
-        if (that.numRows() * that.numCols() <= broadSize && that.numBlksByCol() == 1){
+        if (that.numRows() * that.numCols() <= broadSize && that.numBlksByRow() == 1){
           val broadBDM = rows.context.broadcast(this.toBreeze())
           val result = that.blocks.mapPartitions(iter => {
             iter.map( t =>{
