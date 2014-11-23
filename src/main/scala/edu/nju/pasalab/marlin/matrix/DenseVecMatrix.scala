@@ -115,6 +115,27 @@ class DenseVecMatrix(
   }
 
   /**
+   * Column bind from two matrices, and create a new matrix, just like cBind in R
+   * @param other another matrix in DenseVecMatrix format
+   * @return
+   */
+  def cBind(other: DenseVecMatrix): DenseVecMatrix = {
+    require(numRows() == other.numRows(), s"Dimension mismatch:  ${numRows()} vs ${other.numRows()}")
+    val result = rows.join(other.rows).map(t => {
+      val length = t._2._1.size + t._2._2.size
+      val array = Array.ofDim[Double](length)
+      for (i <- 0 until t._2._1.size){
+        array(i) = t._2._1.values(i)
+      }
+      for (j <- 0 until t._2._2.size){
+        array(j + t._2._2.size) = t._2._2.values(j)
+      }
+      (t._1, new DenseVector(array))
+    })
+    new DenseVecMatrix(result, numRows(), numCols() + other.numCols())
+  }
+
+  /**
    * A matrix multiply another DenseVecMatrix
    *
    * @param other another matrix in DenseVecMatrix format

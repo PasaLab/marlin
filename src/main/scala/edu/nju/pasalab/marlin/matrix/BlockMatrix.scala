@@ -332,38 +332,44 @@ class BlockMatrix(
    * @return the result matrix in BlockMatrix type
    */
   def multiplyBroadcast(other: BlockMatrix, parallelism: Int, splits:(Int, Int, Int), mode: String): BlockMatrix = {
-    val bArr = if (mode.toLowerCase.equals("broadcastb")) {
+    val tmp =  if (mode.toLowerCase.equals("broadcastb")) {
       val subBlocks = other.blocks.collect()
       val blocksArray =  Array.ofDim[BDM[Double]](other.blksByRow, other.blksByCol)
       for (s <- subBlocks) {
         blocksArray(s._1.row)(s._1.column) = s._2
       }
-      blocks.context.broadcast(blocksArray)
+     val bArr = blocks.context.broadcast(blocksArray)
+
+      blocks.mapPartitions(iter => {
+        val res = Array.ofDim[(BlockID, BDM[Double])](other.blksByCol)
+        val mats = bArr.value
+        iter.flatMap(t => {
+          for (j <- 0 until other.blksByCol) {
+            res(j) = (new BlockID(t._1.row, j),
+              (t._2 * mats(t._1.column)(j)).asInstanceOf[BDM[Double]])
+          }
+          res
+        })
+      })
     }else {
       val subBlocks = blocks.collect()
-      val blocksArray = Array.ofDim[BDM[Double]](blksByRow, blksByCol)
+      val blocksArray = Array.ofDim[BDM[Double]](blksByRow, blksByRow)
       for (s <- subBlocks) {
         blocksArray(s._1.row)(s._1.column) = s._2
       }
-      blocks.context.broadcast(blocksArray)
-    }
-
-    val tmp = blocks.mapPartitions(iter => {
-      val res = Array.ofDim[(BlockID, BDM[Double])](other.blksByCol)
-      val mats = bArr.value
-      iter.flatMap(t => {
-        for (j <- 0 until other.blksByCol) {
-          if (mode.toLowerCase.equals("broadcastb")) {
-            res(j) = (new BlockID(t._1.row, j),
-              (t._2 * mats(t._1.column)(j)).asInstanceOf[BDM[Double]])
-          }else {
-            res(j) = (new BlockID(t._1.row, j),
-              (mats(t._1.column)(j) * t._2).asInstanceOf[BDM[Double]])
+      val bArr = blocks.context.broadcast(blocksArray)
+      other.blocks.mapPartitions(iter => {
+        val res = Array.ofDim[(BlockID, BDM[Double])](blksByRow)
+        val mats = bArr.value
+        iter.flatMap(t => {
+          for (j <- 0 until blksByRow){
+            res(j) = (new BlockID(j, t._1.column),
+              (mats(j)(t._1.row) * t._2).asInstanceOf[BDM[Double]])
           }
-        }
-        res
+          res
+        })
       })
-    })
+    }
 
     if (splits._2 == 1){
       new BlockMatrix(tmp, numRows(), other.numCols(),
