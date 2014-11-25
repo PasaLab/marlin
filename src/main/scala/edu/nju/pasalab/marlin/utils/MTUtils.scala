@@ -77,6 +77,22 @@ object MTUtils {
   }
 
   /**
+   *  Function to generate a distributed BlockMatrix, in which every element is one
+   *
+   * @param sc spark context
+   * @param nRows the number of rows of the whole matrix
+   * @param nColumns the number of columns of the whole matrix
+   * @return DenseVecMatrix
+   */
+  def onesDenVecMatrix(sc: SparkContext,
+      nRows: Long,
+      nColumns: Int): DenseVecMatrix = {
+
+    val rows = RandomRDDs.onesDenVecRDD(sc, nRows, nColumns)
+    new DenseVecMatrix(rows, nRows, nColumns)
+  }
+
+  /**
    * Function to design the method how to split input two matrices
    *
    * @param m rows num of Matrix A
@@ -86,7 +102,7 @@ object MTUtils {
    * @return rows of Matrix A to be split nums, columns of Matrix A to be split nums,
    *         columns of Matrix B to be split nums
    */
-  def splitMethod(m: Long, k: Long, n: Long, cores: Int): (Int, Int, Int) = {
+  private[marlin] def splitMethod(m: Long, k: Long, n: Long, cores: Int): (Int, Int, Int) = {
     var mSplitNum = 1
     var kSplitNum = 1
     var nSplitNum = 1
@@ -258,10 +274,30 @@ object MTUtils {
    * @return a local array of two dimensions           
    */
 
-  def matrixToArray(mat: DenseVecMatrix ): Array[Array[Double]] ={
-    val arr = Array.ofDim[Double](mat.numRows().toInt, mat.numCols().toInt)
-    mat.rows.collect().foreach( t => t._2.toArray.copyToArray(arr(t._1.toInt)) )
-    arr
+  def matrixToArray(mat: DistributedMatrix ): Array[Array[Double]] ={
+    mat match {
+      case m: DenseVecMatrix => {
+        val array = Array.ofDim[Double](m.numRows().toInt, m.numCols().toInt)
+        m.rows.collect().foreach(t => t._2.toArray.copyToArray(array(t._1.toInt)) )
+        array
+      }
+      case m: BlockMatrix => {
+        val blkRowSize = math.ceil(m.numRows().toDouble / m.numBlksByRow().toDouble).toInt
+        val blkColSize = math.ceil(m.numCols().toDouble / m.numBlksByCol().toDouble).toInt
+        val array = Array.ofDim[Double](m.numRows().toInt, m.numCols().toInt)
+        m.blocks.collect().foreach(t => {
+          val rowBase = t._1.row * blkRowSize
+          val colBase = t._1.column * blkColSize
+          val iterator = t._2.iterator
+          while (iterator.hasNext) {
+            val ((r, c), v) = iterator.next()
+            array(r + rowBase)(c + colBase) = v
+          }
+        })
+        array
+      }
+    }
+
   }
 
 

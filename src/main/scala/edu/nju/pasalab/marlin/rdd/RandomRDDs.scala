@@ -5,7 +5,7 @@ import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 
 import edu.nju.pasalab.marlin.matrix.{DenseVector, BlockID}
-import edu.nju.pasalab.marlin.utils.{ZerosGenerator, RandomDataGenerator}
+import edu.nju.pasalab.marlin.utils.{OnesGenerator, ZerosGenerator, RandomDataGenerator}
 
 object RandomRDDs {
 
@@ -48,6 +48,25 @@ object RandomRDDs {
     new RandomDenVecRDD(
       sc, numRows, numCols, numPartitionsOrDefault(sc, numPartitions), new ZerosGenerator())
   }
+
+  /**
+   * Generates an RDD[(Long, DenseVector)] with every elements in the vector is one.
+   *
+   * @param sc SparkContext used to create the RDD.
+   * @param numRows Number of Vectors in the RDD.
+   * @param numCols Number of elements in each Vector.
+   * @param numPartitions Number of partitions in the RDD (default: `sc.defaultParallelism`).
+   * @return
+   */
+  def onesDenVecRDD(sc: SparkContext,
+      numRows: Long,
+      numCols: Int,
+      numPartitions: Int = 0): RDD[(Long, DenseVector)] = {
+
+    new RandomDenVecRDD(
+      sc, numRows, numCols, numPartitionsOrDefault(sc, numPartitions), new OnesGenerator())
+  }
+
 
 
   /**

@@ -36,6 +36,18 @@ class ZerosGenerator() extends RandomDataGenerator[Double] {
 }
 
 /**
+ * Generate all one data
+ */
+class OnesGenerator() extends RandomDataGenerator[Double] {
+
+  override def nextValue(): Double = 1.0
+
+  override def copy(): RandomDataGenerator[Double] = this
+
+  override def setSeed(seed: Long): Unit = {}
+}
+
+/**
  * Generates i.i.d. samples from U[start, end] (default is U[0.0, 1.0])
  */
 class UniformGenerator(start: Double = 0.0, end: Double = 1.0) extends RandomDataGenerator[Double] {

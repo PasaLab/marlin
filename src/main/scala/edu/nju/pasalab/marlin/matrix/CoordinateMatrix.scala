@@ -27,11 +27,11 @@ case class MatrixEntry(codinate: (Long, Long), value: Double)
 class CoordinateMatrix(
                         val entries: RDD[((Long, Long), Double)],
                         private var nRows: Long,
-                        private var nCols: Long) extends DistributedMatrix {
+                        private var nCols: Long)  {
   /** Alternative constructor leaving matrix dimensions to be determined automatically. */
   def this(entries: RDD[((Long, Long), Double)]) = this(entries, 0L, 0L)
   /** Gets or computes the number of columns. */
-  override def numCols(): Long = {
+  def numCols(): Long = {
     if (nCols <= 0L) {
       computeSize()
     }
@@ -39,7 +39,7 @@ class CoordinateMatrix(
   }
 
   /** Gets or computes the number of rows. */
-  override def numRows(): Long = {
+  def numRows(): Long = {
     if (nRows <= 0L) {
       computeSize()
     }
@@ -73,7 +73,7 @@ class CoordinateMatrix(
     nCols = math.max(nCols, n1 + 1L)
   }
   /** Collects data and assembles a local matrix. */
-  private[matrix] override def toBreeze(): BDM[Double] = {
+  private[marlin]  def toBreeze(): BDM[Double] = {
     val m = numRows().toInt
     val n = numCols().toInt
     val mat = BDM.zeros[Double](m, n)

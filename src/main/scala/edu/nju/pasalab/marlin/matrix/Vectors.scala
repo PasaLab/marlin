@@ -169,6 +169,15 @@ class DenseVector extends Vector  {
       values(i) = in.readDouble()
     }
   }
+
+  /** used for display the vector**/
+  private[marlin] def print(length: Int): String ={
+    if (length > size){
+      toArray.mkString(",")
+    }else {
+      toArray.take(length).mkString(",") + " ..."+ (size - length) +" elements more..."
+    }
+  }
 }
 
 /**

@@ -273,7 +273,7 @@ class BlockMatrix(
    *
    * @param b a number in the format of double
    */
-  final def substactBy(b: Double): BlockMatrix = {
+  final def subtractBy(b: Double): BlockMatrix = {
     val result = blocks.mapValues(t => {
       val array = t.data
       for (i <- 0 until array.length){
@@ -331,7 +331,7 @@ class BlockMatrix(
    * @param other other matrix to be multiplied
    * @return the result matrix in BlockMatrix type
    */
-  def multiplyBroadcast(other: BlockMatrix, parallelism: Int, splits:(Int, Int, Int), mode: String): BlockMatrix = {
+  private[marlin] def multiplyBroadcast(other: BlockMatrix, parallelism: Int, splits:(Int, Int, Int), mode: String): BlockMatrix = {
     val tmp =  if (mode.toLowerCase.equals("broadcastb")) {
       val subBlocks = other.blocks.collect()
       val blocksArray =  Array.ofDim[BDM[Double]](other.blksByRow, other.blksByCol)
@@ -380,6 +380,14 @@ class BlockMatrix(
         numBlksByRow(), other.numBlksByCol())
     }
   }
+
+  /**
+   * this function is used to save the martrix in DenseVecMatrix format
+   * @param path the path to store in HDFS
+   */
+  def saveToFileSystem(path: String) {
+    saveToFileSystem(path, " ")
+  }
   
   /**
    * Save the result to the HDFS
@@ -399,8 +407,14 @@ class BlockMatrix(
     }
   }
 
-
-
+  /**
+   * save the matrix in sequencefile in DenseVecMatrix format
+   *
+   * @param path the path to store in HDFS
+   */
+  def saveSequenceFile(path: String): Unit = {
+    toDenseVecMatrix().saveSequenceFile(path)
+  }
 
   /**
    * transform the BlockMatrix to DenseVecMatrix
@@ -435,8 +449,49 @@ class BlockMatrix(
       }
       (input._1 , Vectors.dense(array))
     })
-
     new DenseVecMatrix(result)
+  }
+
+  /**
+   * Column bind to generate a new distributed matrix
+   * @param other another matrix to be column bind
+   * @return
+   */
+  def cBind(other: DistributedMatrix) : DistributedMatrix = {
+    require( numRows() == other.numRows(), s"Row dimension mismatches: ${numRows()} vs ${other.numRows()}")
+    other match {
+      case that: BlockMatrix => {
+        if (numBlksByRow() == that.numBlksByRow()){
+          val result = that.blocks.map(t =>
+            (new BlockID(t._1.row, t._1.column + numBlksByCol()), t._2)).union(blocks)
+          new BlockMatrix(result, numRows(), numCols() + that.numCols(), blksByRow, blksByCol + that.blksByCol)
+        }else {
+          val thatDenVec = that.toDenseVecMatrix()
+          val thisDenVec = this.toDenseVecMatrix()
+          thisDenVec.cBind(thatDenVec)
+        }
+      }
+      case that: DenseVecMatrix => {
+        toDenseVecMatrix().cBind(that)
+      }
+      case  _ =>{
+        throw new IllegalArgumentException("have not implemented yet")
+      }
+    }
+  }
+
+  /**
+   * print the matrix out
+   */
+  def print() {
+    if  (numBlksByRow() * numBlksByCol() > 4){
+      blocks.take(4).foreach(t => println("blockID :[" + t._1.row + ", " + t._1.column
+        + "], block content below:\n" + t._2.toString()))
+      println("there are " + (numBlksByRow() * numBlksByCol() - 4) + " blocks more")
+    }else {
+      blocks.collect().foreach(t => println("blockID :[" + t._1.row + ", " + t._1.column
+        + "], block content below:\n"+ t._2.toString()))
+    }
   }
 
 }
