@@ -537,16 +537,18 @@ class DenseVecMatrix(
      val result = rows.mapPartitions(iter => {
         iter.map( t => {
           (t._1.toInt / mBlockRowSize, t)})
-      }).groupByKey().mapPartitions( iter => {
-        val rowLen = iter.size
-        val mat = BDM.zeros[Double](rowLen, mBlockColSize)
+      }).groupByKey().mapPartitions(iter => {
         iter.map(t => {
           val blockRow = t._1
+          val rowLen = if ((blockRow + 1) * mBlockRowSize > numRows()){
+            numRows().toInt - blockRow * mBlockRowSize
+          }else {mBlockRowSize}
           val iterator = t._2.iterator
+          val mat = BDM.zeros[Double](rowLen, mBlockColSize)
           while (iterator.hasNext){
             val (index, vec) = iterator.next()
             vec.toArray.zipWithIndex.map(x =>  {
-              mat.update(index.toInt - blockRow * mBlockColSize,  x._2, x._1)
+              mat.update(index.toInt - blockRow * mBlockColSize, x._2, x._1)
             })
           }
           (new BlockID(t._1, 0), mat)
@@ -606,14 +608,14 @@ class DenseVecMatrix(
               val vec = itr.next()
               if (vec._2.size != smCols) {
                 Logger.getLogger(getClass).
-                  log(Level.ERROR, "vectors:  " + input._2 + "Block Column Size dismatched")
-                throw new IOException("Block Column Size dismatched")
+                  log(Level.ERROR, "vectors:  " + input._2 + "Block Column Size mismatch")
+                throw new IOException("Block Column Size mismatch")
               }
 
               val rowOffset = vec._1.toInt - rowBase
               if (rowOffset >= smRows || rowOffset < 0) {
-                Logger.getLogger(getClass).log(Level.ERROR, "Block Row Size dismatched")
-                throw new IOException("Block Row Size dismatched")
+                Logger.getLogger(getClass).log(Level.ERROR, "Block Row Size mismatch")
+                throw new IOException("Block Row Size mismatch")
               }
 
               val tmp = vec._2.toArray
