@@ -93,6 +93,7 @@ class BlockMatrix(
     require(numCols() == other.numRows(), s"Dimension mismatch: ${numCols()} vs ${other.numRows()}")
     other match {
       case mat: BlockMatrix => {
+
         if (numBlksByCol() != mat.numBlksByRow()) {
           toDenseVecMatrix().multiply(mat.toDenseVecMatrix(), cores)
         } else {

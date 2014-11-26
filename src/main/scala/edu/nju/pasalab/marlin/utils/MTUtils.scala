@@ -300,6 +300,40 @@ object MTUtils {
 
   }
 
+  /**
+   * This function is used to improve the matrix multiply performance, just broadcast a local
+   * matrix, avoid the overhead when collecting the distributed matrix
+   *
+   * @param localMat a local breeze.linalg.DenseMatrix
+   * @param matrix the distributed matrix
+   * @param cores the num of cores across the cluster
+   * @return
+   */
+  def leftBroadMultiply(localMat: BDM[Double], matrix: DistributedMatrix, cores: Int): BlockMatrix = {
+    require(localMat.cols == matrix.numRows(), s"matrices dimension mismatched: ${localMat.cols} vs ${matrix.numRows()}")
+    matrix match {
+      case that: BlockMatrix => {
+        val brodMat = that.blocks.context.broadcast(localMat)
+        val result = that.blocks.mapPartitions(iter => {
+          iter.map( t => {
+            (t._1, (brodMat.value * t._2).asInstanceOf[BDM[Double]])
+          })
+        })
+        new BlockMatrix(result, localMat.rows, that.numCols(), that.numBlksByRow(), that.numBlksByCol())
+      }
+      case that: DenseVecMatrix => {
+        val brodMat = that.rows.context.broadcast(localMat)
+        val blkMat = that.toBlockMatrix(1, math.min(8 * cores, that.numCols().toInt / 2))
+        val result = blkMat.blocks.mapPartitions(iter => {
+          iter.map( t => {
+            (t._1, (brodMat.value * t._2).asInstanceOf[BDM[Double]])
+          })
+        })
+        new BlockMatrix(result, localMat.rows, that.numCols(), 1, math.min(8 * cores, that.numCols().toInt / 2))
+      }
+    }
+  }
+
 
   /**
    * Returns `numPartitions` if it is positive, or `sc.defaultParallelism` otherwise.
@@ -311,4 +345,6 @@ object MTUtils {
     }else 
       sc.defaultMinPartitions
   }
+
+
 }
