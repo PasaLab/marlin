@@ -2,6 +2,9 @@ package edu.nju.pasalab.marlin.matrix
 
 import java.io.IOException
 
+import org.apache.hadoop.conf.Configuration
+import org.apache.hadoop.fs.{FileSystem, Path}
+
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.parallel.mutable.ParArray
 
@@ -502,8 +505,27 @@ class DenseVecMatrix(
    * @param path the path to store the DenseVecMatrix in HDFS or local file system
    */
   def saveToFileSystem(path: String) {
+
     rows.map(t => (NullWritable.get(), new Text(t._1 + ":" + t._2.toString)))
       .saveAsHadoopFile[TextOutputFormat[NullWritable, Text]](path)
+  }
+
+  /**
+   * Save the result to HDFS with a description file name `_description`, the description file content is like:
+   * MatrixName[TAB]name (if not available, use N/A)
+   * MatrixSize[TAB]row column
+   *
+   * @param path
+   */
+  def saveWithDescription(path: String): Unit = {
+    rows.map(t => (NullWritable.get(), new Text(t._1 + ":" + t._2.toString)))
+      .saveAsHadoopFile[TextOutputFormat[NullWritable, Text]](path)
+    val conf = new Configuration()
+    val hdfs = FileSystem.get(conf)
+    val out = hdfs.create(new Path(path + " /_description"))
+    val info = "MatrixName\tN/A\nMatrixSize\t" + numRows() + " " + numCols()
+    out.write(info.getBytes())
+    out.close()
   }
 
   /**
