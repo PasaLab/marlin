@@ -216,7 +216,7 @@ object MTUtils {
       System.exit(1)
     }
     val files = sc.wholeTextFiles(path, minPartitions)
-    val rows = files.flatMap(t =>{
+    val rows = files.filter(t => !t._2.isEmpty).flatMap(t =>{
       val lines = t._2.split("\n")
       lines.map( l =>{
         val content = l.split(":")
@@ -237,7 +237,7 @@ object MTUtils {
   def loadBlockMatrixFiles(sc: SparkContext, path: String, minPartitions: Int = 4): BlockMatrix = {
     if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://") && !path.startsWith("file://")) {
       System.err.println("the path is not in local file System, HDFS or Tachyon")
-      System.exit(1)
+      throw new IllegalArgumentException()
     }
     val file = sc.wholeTextFiles(path, minPartitions)
     val blocks = file.flatMap(t =>{
