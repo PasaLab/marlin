@@ -48,7 +48,7 @@ trait DistributedMatrix extends Serializable {
   def divideBy(d: Double): DistributedMatrix
 
   /** A transpose view of original matrix**/
-  def transpose(): DistributedMatrix
+  def transpose(): BlockMatrix
 
   /** Column bind to generate a new distributed matrix**/
   def cBind(other: DistributedMatrix): DistributedMatrix

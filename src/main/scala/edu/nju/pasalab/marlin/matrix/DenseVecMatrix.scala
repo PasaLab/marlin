@@ -213,7 +213,7 @@ class DenseVecMatrix(
 
 
   /**
-   * This function is still in progress !
+   * This function is still in progress. it needs to do more work
    * LU decompose this DenseVecMatrix to generate a lower triangular matrix L
    * and a upper triangular matrix U
    *
@@ -223,44 +223,48 @@ class DenseVecMatrix(
     val iterations = numRows
     require(iterations == numCols,
       s"currently we only support square matrix: ${iterations} vs ${numCols}")
+    if (!rows.context.getCheckpointDir.isDefined){
+      println("Waning, checkpointdir is not set! We suggest you set it before running luDecopose")
+    }
 
-//    object LUmode extends Enumeration {
-//      val LocalBreeze, DistSpark = Value
-//    }
-//    val computeMode =  mode match {
-//      case "auto" => if ( iterations > 10000L){
-//        LUmode.DistSpark
-//      }else {
-//        LUmode.LocalBreeze
-//      }
-//      case "breeze" => LUmode.LocalBreeze
-//      case "dist" => LUmode.DistSpark
-//      case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
-//    }
-//
-//    val (lower: IndexMatrix, upper: IndexMatrix) = computeMode match {
-//      case LUmode.LocalBreeze =>
-//       val temp =  bLU(toBreeze())
-//        Matrices.fromBreeze(breeze.linalg.lowerTriangular(temp._1))
-//    }
-//
+    //    object LUmode extends Enumeration {
+    //      val LocalBreeze, DistSpark = Value
+    //    }
+    //    val computeMode =  mode match {
+    //      case "auto" => if ( iterations > 10000L){
+    //        LUmode.DistSpark
+    //      }else {
+    //        LUmode.LocalBreeze
+    //      }
+    //      case "breeze" => LUmode.LocalBreeze
+    //      case "dist" => LUmode.DistSpark
+    //      case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
+    //    }
+    //
+    //    val (lower: IndexMatrix, upper: IndexMatrix) = computeMode match {
+    //      case LUmode.LocalBreeze =>
+    //       val temp =  bLU(toBreeze())
+    //        Matrices.fromBreeze(breeze.linalg.lowerTriangular(temp._1))
+    //    }
+    //
     //copy construct a IndexMatrix to maintain the original matrix
-    val matr = new DenseVecMatrix(rows.map( t => {
+    var matr = new DenseVecMatrix(rows.map(t => {
       val array = Array.ofDim[Double](numCols().toInt)
       val v = t._2.toArray
-      for ( k <- 0 until v.length){
+      for (k <- 0 until v.length) {
         array(k) = v.apply(k)
       }
-      (t._1, Vectors.dense(array))}))
+      (t._1, Vectors.dense(array))
+    }))
 
     val num = iterations.toInt
 
-    val lowerMat = MTUtils.zerosDenVecMatrix(rows.context, numRows(), numCols().toInt)
+    var lowerMat = MTUtils.zerosDenVecMatrix(rows.context, numRows(), numCols().toInt)
 
     for (i <- 0 until num) {
-     val vector = matr.rows.filter(t => t._1.toInt == i).map(t => t._2).first()
-     val c = matr.rows.context.broadcast(vector.apply(i))
-     val broadVec = matr.rows.context.broadcast(vector)
+      val vector = matr.rows.filter(t => t._1.toInt == i).map(t => t._2).first()
+      val c = matr.rows.context.broadcast(vector.apply(i))
+      val broadVec = matr.rows.context.broadcast(vector)
 
       //TODO: here we omit the compution of L
 
@@ -273,7 +277,7 @@ class DenseVecMatrix(
 
       val broadLV = matr.rows.context.broadcast(updateVec)
 
-      lowerMat.rows.mapPartitions( iter => {
+      val lresult = lowerMat.rows.mapPartitions( iter => {
         iter.map { t =>
         if ( t._1.toInt >= i) {
           val vec = t._2.toArray
@@ -281,13 +285,14 @@ class DenseVecMatrix(
           (t._1, Vectors.dense(vec))
         }else t
       }}, true)
-      
+      lowerMat = new DenseVecMatrix(lresult, numRows(), numCols())
+
       //cache the lower matrix to speed the compution
-         matr.rows.mapPartitions( iter =>{
+      val result = matr.rows.mapPartitions(iter =>{
             iter.map(t => {
          if ( t._1.toInt > i){
           val vec = t._2.toArray
-          val lupdate = vec.apply(i)/c.value
+          val lupdate = vec.apply(i) / c.value
           val mfactor = -vec.apply(i) / c.value
           for (k <- 0 until vec.length) {
             vec.update(k, vec.apply(k) + mfactor * broadVec.value.apply(k))
@@ -296,13 +301,14 @@ class DenseVecMatrix(
          }
          else t
         })}, true)
-
+      matr = new DenseVecMatrix(result, numRows(), numCols())
       //cache the matrix to speed the compution
       matr.rows.cache()
-      if (i % 2000 == 0)
-        matr.rows.checkpoint()
+        if (i % 2000 == 0){
+          if (matr.rows.context.getCheckpointDir.isDefined)
+            matr.rows.checkpoint()
+        }
     }
-
     (lowerMat, matr)
   }
 
@@ -559,7 +565,7 @@ class DenseVecMatrix(
      val result = rows.mapPartitions(iter => {
         iter.map( t => {
           (t._1.toInt / mBlockRowSize, t)})
-      }).groupByKey().mapPartitions(iter => {
+      }, true).groupByKey().mapPartitions(iter => {
         iter.map(t => {
           val blockRow = t._1
           val rowLen = if ((blockRow + 1) * mBlockRowSize > numRows()){
@@ -570,7 +576,7 @@ class DenseVecMatrix(
           while (iterator.hasNext){
             val (index, vec) = iterator.next()
             vec.toArray.zipWithIndex.map(x =>  {
-              mat.update(index.toInt - blockRow * mBlockColSize, x._2, x._1)
+              mat.update(index.toInt - blockRow * mBlockRowSize, x._2, x._1)
             })
           }
           (new BlockID(t._1, 0), mat)
@@ -694,9 +700,15 @@ class DenseVecMatrix(
    * A transpose view of this matrix
    * @return
    */
-  def transpose(): DistributedMatrix = {
+  def transpose(): BlockMatrix = {
     require(numRows() < Int.MaxValue, s"the row length of matrix is too large to transpose")
-    toBlockMatrix(20, 1).transpose()
+    val sc = rows.context
+    val blkByRow = if (!sc.getConf.getOption("spark.default.parallelism").isEmpty) {
+      sc.getConf.get("spark.default.parallelism").toInt
+    }else {
+      sc.defaultMinPartitions
+    }
+    toBlockMatrix(math.min(blkByRow, numRows().toInt / 2), 1).transpose()
   }
 
 }
