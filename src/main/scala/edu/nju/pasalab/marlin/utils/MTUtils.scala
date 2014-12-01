@@ -25,17 +25,24 @@ object MTUtils {
    * @param sc spark context
    * @param nRows the number of rows of the whole matrix
    * @param nColumns the number of columns of the whole matrix
-   * @param blksByRow the number of submatrices along the row side
-   * @param blksByCol the number of submatrices along the column side
+   * @param numByRow the number of submatrices along the row side you assign, the real num may be not.
+   * @param numByCol the number of submatrices along the column side you assign, the real num may be not.
    * @param distribution the distribution of the elements in the matrix, default is U[0.0, 1.0]
    * @return BlockMatrix
    */
   def randomBlockMatrix(sc: SparkContext,
       nRows: Long,
       nColumns: Int,
-      blksByRow: Int,
-      blksByCol: Int,
+      numByRow: Int,
+      numByCol: Int,
       distribution: RandomDataGenerator[Double] = new UniformGenerator(0.0, 1.0)): BlockMatrix = {
+
+    val mRows = nRows.toInt
+    val mColumns = nColumns
+    val mBlockRowSize = math.ceil(mRows.toDouble / numByRow.toDouble).toInt
+    val mBlockColSize = math.ceil(mColumns.toDouble / numByCol.toDouble).toInt
+    val blksByRow = math.ceil(mRows.toDouble / mBlockRowSize).toInt
+    val blksByCol = math.ceil(mColumns.toDouble / mBlockColSize).toInt
 
     val blocks = RandomRDDs.randomBlockRDD(sc, distribution, nRows, nColumns, blksByRow, blksByCol)
     new BlockMatrix(blocks, nRows, nColumns, blksByRow, blksByCol)
