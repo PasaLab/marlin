@@ -226,26 +226,25 @@ class DenseVecMatrix(
     if (!rows.context.getCheckpointDir.isDefined){
       println("Waning, checkpointdir is not set! We suggest you set it before running luDecopose")
     }
-
-    //    object LUmode extends Enumeration {
-    //      val LocalBreeze, DistSpark = Value
-    //    }
-    //    val computeMode =  mode match {
-    //      case "auto" => if ( iterations > 10000L){
-    //        LUmode.DistSpark
-    //      }else {
-    //        LUmode.LocalBreeze
-    //      }
-    //      case "breeze" => LUmode.LocalBreeze
-    //      case "dist" => LUmode.DistSpark
-    //      case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
-    //    }
+    // object LUmode extends Enumeration {
+    // val LocalBreeze, DistSpark = Value
+    // }
+    // val computeMode = mode match {
+    // case "auto" => if ( iterations > 10000L){
+    // LUmode.DistSpark
+    // }else {
+    // LUmode.LocalBreeze
+    // }
+    // case "breeze" => LUmode.LocalBreeze
+    // case "dist" => LUmode.DistSpark
+    // case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
+    // }
     //
-    //    val (lower: IndexMatrix, upper: IndexMatrix) = computeMode match {
-    //      case LUmode.LocalBreeze =>
-    //       val temp =  bLU(toBreeze())
-    //        Matrices.fromBreeze(breeze.linalg.lowerTriangular(temp._1))
-    //    }
+    // val (lower: IndexMatrix, upper: IndexMatrix) = computeMode match {
+    // case LUmode.LocalBreeze =>
+    // val temp = bLU(toBreeze())
+    // Matrices.fromBreeze(breeze.linalg.lowerTriangular(temp._1))
+    // }
     //
     //copy construct a IndexMatrix to maintain the original matrix
     var matr = new DenseVecMatrix(rows.map(t => {
@@ -256,58 +255,50 @@ class DenseVecMatrix(
       }
       (t._1, Vectors.dense(array))
     }))
-
     val num = iterations.toInt
-
     var lowerMat = MTUtils.zerosDenVecMatrix(rows.context, numRows(), numCols().toInt)
-
     for (i <- 0 until num) {
       val vector = matr.rows.filter(t => t._1.toInt == i).map(t => t._2).first()
       val c = matr.rows.context.broadcast(vector.apply(i))
       val broadVec = matr.rows.context.broadcast(vector)
-
       //TODO: here we omit the compution of L
-
       //TODO: here collect() is too much cost, find another method
       val lupdate = matr.rows.map( t => (t._1 , t._2.toArray.apply(i) / c.value)).collect()
       val updateVec = Array.ofDim[Double](num)
       for ( l <- lupdate){
         updateVec.update(l._1.toInt , l._2)
       }
-
       val broadLV = matr.rows.context.broadcast(updateVec)
-
       val lresult = lowerMat.rows.mapPartitions( iter => {
         iter.map { t =>
-        if ( t._1.toInt >= i) {
-          val vec = t._2.toArray
-          vec.update(i, broadLV.value.apply(t._1.toInt))
-          (t._1, Vectors.dense(vec))
-        }else t
-      }}, true)
+          if ( t._1.toInt >= i) {
+            val vec = t._2.toArray
+            vec.update(i, broadLV.value.apply(t._1.toInt))
+            (t._1, Vectors.dense(vec))
+          }else t
+        }}, true)
       lowerMat = new DenseVecMatrix(lresult, numRows(), numCols())
-
       //cache the lower matrix to speed the compution
       val result = matr.rows.mapPartitions(iter =>{
-            iter.map(t => {
-         if ( t._1.toInt > i){
-          val vec = t._2.toArray
-          val lupdate = vec.apply(i) / c.value
-          val mfactor = -vec.apply(i) / c.value
-          for (k <- 0 until vec.length) {
-            vec.update(k, vec.apply(k) + mfactor * broadVec.value.apply(k))
+        iter.map(t => {
+          if ( t._1.toInt > i){
+            val vec = t._2.toArray
+            val lupdate = vec.apply(i) / c.value
+            val mfactor = -vec.apply(i) / c.value
+            for (k <- 0 until vec.length) {
+              vec.update(k, vec.apply(k) + mfactor * broadVec.value.apply(k))
+            }
+            (t._1, Vectors.dense(vec))
           }
-           (t._1, Vectors.dense(vec))
-         }
-         else t
+          else t
         })}, true)
       matr = new DenseVecMatrix(result, numRows(), numCols())
       //cache the matrix to speed the compution
       matr.rows.cache()
-        if (i % 2000 == 0){
-          if (matr.rows.context.getCheckpointDir.isDefined)
-            matr.rows.checkpoint()
-        }
+      if (i % 2000 == 0){
+        if (matr.rows.context.getCheckpointDir.isDefined)
+          matr.rows.checkpoint()
+      }
     }
     (lowerMat, matr)
   }
@@ -528,7 +519,7 @@ class DenseVecMatrix(
       .saveAsHadoopFile[TextOutputFormat[NullWritable, Text]](path)
     val conf = new Configuration()
     val hdfs = FileSystem.get(conf)
-    val out = hdfs.create(new Path(path + " /_description"))
+    val out = hdfs.create(new Path(path + "/_description"))
     val info = "MatrixName\tN/A\nMatrixSize\t" + numRows() + " " + numCols()
     out.write(info.getBytes())
     out.close()

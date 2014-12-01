@@ -323,7 +323,7 @@ class BlockMatrix(
         (new BlockID(t._1.column, t._1.row), t._2.t )
       })
     })
-    new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
+    new BlockMatrix(result, numCols(), numRows(), numBlksByCol(), numBlksByRow())
   }
 
   /**
