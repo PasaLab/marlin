@@ -67,8 +67,8 @@ class BlockMatrix(
   override private[matrix] def toBreeze(): BDM[Double] = {
     val m = numRows().toInt
     val n = numCols().toInt
-    val mostBlkRowLen =math.ceil(m.toDouble / blksByRow.toDouble).toInt
-    val mostBlkColLen =math.ceil(n.toDouble / blksByCol.toDouble).toInt
+    val mostBlkRowLen =math.ceil(m.toDouble / numBlksByRow().toDouble).toInt
+    val mostBlkColLen =math.ceil(n.toDouble / numBlksByCol().toDouble).toInt
     val mat = BDM.zeros[Double](m, n)
     blocks.collect().foreach{
       case (blkID, matrix) =>
@@ -167,16 +167,22 @@ class BlockMatrix(
         }
       }
       case mat: DenseVecMatrix => {
-        // if the other matrix is small, just broadcast it, it is benefitical when several matrices multiplication
+        // if the other matrix is small, just broadcast it, it is beneficial when several matrices multiplication
         val broadSize = 300 * 1024 * 1024 / 8
         if (mat.numRows() * mat.numCols() < broadSize){
-         val broadBDM = blocks.context.broadcast(mat.toBreeze())
+          val blockMatrix = mat.toBlockMatrix((mat.numRows() * numBlksByCol() / numCols()).toInt,
+              (mat.numCols() * numBlksByRow() / numRows()).toInt)
+       /*the following logic is problematic　as the two matrix multiplier's dimension mismatches
+        *   val broadBDM = blocks.context.broadcast(blockMatrix)
+         multiply()
          val result = blocks.mapPartitions( iter => {
             iter.map( t => {
               (t._1, (t._2 * broadBDM.value).asInstanceOf[BDM[Double]])
             })
           })
          new BlockMatrix(result, numRows(), mat.numCols(), numBlksByRow(), numBlksByCol())
+         * */
+         multiply(blockMatrix, cores)
         }else {
           toDenseVecMatrix().multiply(mat, cores)
         }
