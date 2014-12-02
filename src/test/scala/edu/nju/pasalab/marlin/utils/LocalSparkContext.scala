@@ -7,16 +7,16 @@ import org.scalatest.{Suite, BeforeAndAfterAll}
 trait LocalSparkContext extends BeforeAndAfterAll { self: Suite =>
   @transient var sc: SparkContext = _
 
-  override protected def beforeAll {
+  override def beforeAll() {
     val conf = new SparkConf().setMaster("local[2]").setAppName("test")
     sc = new SparkContext(conf)
     super.beforeAll()
   }
 
-  override protected def afterAll(configMap: Map[String, Any]) {
+  override def afterAll() {
     if (sc != null){
       sc.stop()
     }
-    super.afterAll(configMap)
+    super.afterAll()
   }
 }
