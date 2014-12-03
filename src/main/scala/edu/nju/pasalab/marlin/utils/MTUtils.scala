@@ -32,7 +32,7 @@ object MTUtils {
    */
   def randomBlockMatrix(sc: SparkContext,
       nRows: Long,
-      nColumns: Int,
+      nColumns: Long,
       numByRow: Int,
       numByCol: Int,
       distribution: RandomDataGenerator[Double] = new UniformGenerator(0.0, 1.0)): BlockMatrix = {

@@ -313,6 +313,44 @@ class BlockMatrix(
   }
 
   /**
+   * Sum all the elements in matrix ,note the Double.MaxValue is 1.7976931348623157E308
+   *
+   */
+  def sum(): Double = {
+    blocks.mapPartitions(iter => {
+      iter.map(t => t._2.data.sum)
+    }, true).reduce(_ + _)
+  }
+
+  /**
+   * Matrix-matrix dot product, the two input matrices must have the same row and column dimension
+   * @param other the matrix to be dot product
+   * @return
+   */
+  def dotProduct(other: DistributedMatrix): DistributedMatrix = {
+    require(numRows() == other.numRows(), s"row dimension mismatch ${numRows()} vs ${other.numRows()}")
+    require(numCols() == other.numCols(), s"column dimension mismatch ${numCols()} vs ${other.numCols()}")
+    other match{
+      case that: DenseVecMatrix => {
+        toDenseVecMatrix().dotProduct(that)
+      }
+      case that: BlockMatrix => {
+        if (numBlksByRow() == that.numBlksByRow() && numBlksByCol() == that.numBlksByCol()){
+          val result = blocks.join(that.blocks).mapValues(t =>{
+            val rows = t._1.rows
+            val cols = t._1.cols
+            val array = t._1.data.zip(t._2.data).map(x => x._1 * x._2).toArray
+            new BDM(rows, cols, array)
+          })
+          new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
+        }else {
+          toDenseVecMatrix().dotProduct(toDenseVecMatrix())
+        }
+      }
+    }
+  }
+
+  /**
    *  A transposed view of BlockMatrix
    *
    *  @return the transpose of this BlockMatrix

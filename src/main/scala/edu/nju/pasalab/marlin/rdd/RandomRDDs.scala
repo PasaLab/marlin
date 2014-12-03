@@ -85,7 +85,7 @@ object RandomRDDs {
   def randomBlockRDD(sc: SparkContext,
       generator: RandomDataGenerator[Double],
       numRows: Long,
-      numCols: Int,
+      numCols: Long,
       blksByRow: Int,
       blksByCol: Int,
       seed: Long = System.nanoTime()): RDD[(BlockID, BDM[Double])] = {

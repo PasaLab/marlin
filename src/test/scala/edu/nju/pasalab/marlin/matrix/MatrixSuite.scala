@@ -260,6 +260,26 @@ class MatrixSuite extends FunSuite with LocalSparkContext{
    assert(result === self)
   }
 
+  test("sum"){
+    val mat = new DenseVecMatrix(indexRows)
+    val blkMat = new BlockMatrix(blocks)
+    assert(mat.sum() === 30.0)
+    assert(blkMat.sum() === 30.0)
+  }
+
+  test("dot product"){
+    val mat = new DenseVecMatrix(indexRows)
+    val blkMat = new BlockMatrix(blocks)
+    val dotProduct = BDM(
+      (0.0, 1.0, 4.0, 9.0),
+      (4.0, 9.0, 16.0, 25.0),
+      (9.0, 4.0, 1.0, 0.0),
+      (1.0, 1.0, 1.0, 1.0))
+    assert(mat.dotProduct(mat).toBreeze() === dotProduct)
+    assert(mat.dotProduct(blkMat).toBreeze() === dotProduct)
+    assert(blkMat.dotProduct(mat).toBreeze() === dotProduct)
+    assert(blkMat.dotProduct(blkMat).toBreeze() === dotProduct)
+  }
 
 
 }

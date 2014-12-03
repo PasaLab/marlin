@@ -18,10 +18,7 @@ import org.apache.hadoop.mapred.TextOutputFormat
 
 import edu.nju.pasalab.marlin.utils.MTUtils
 
-/**
- * This class overrides from [[org.apache.spark.mllib.linalg.distributed.IndexedRowMatrix]]
- * Notice: some code in this file is copy from MLlib to make it compatible
- */
+
 class DenseVecMatrix(
     val rows: RDD[(Long, DenseVector)],
     private var nRows: Long,
@@ -411,6 +408,39 @@ class DenseVecMatrix(
   final def divideBy(b: Double): DenseVecMatrix = {
     val result = rows.map(t =>(t._1, Vectors.dense(t._2.toArray.map( b / _))))
     new DenseVecMatrix(result, numRows(), numCols())
+  }
+
+  /**
+   * Sum all the elements in matrix ,note the Double.MaxValue is 1.7976931348623157E308
+   *
+   */
+  def sum(): Double = {
+    rows.mapPartitions(iter =>
+      iter.map(t => t._2.toArray.sum), true).reduce(_ + _)
+  }
+
+  /**
+   * Matrix-matrix dot product, the two input matrices must have the same row and column dimension
+   * @param other the matrix to be dot product
+   * @return
+   */
+  def dotProduct(other: DistributedMatrix): DistributedMatrix = {
+    require(numRows() == other.numRows(), s"row dimension mismatch ${numRows()} vs ${other.numRows()}")
+    require(numCols() == other.numCols(), s"column dimension mismatch ${numCols()} vs ${other.numCols()}")
+    other match {
+      case that: DenseVecMatrix => {
+        val result = rows.join(that.rows).mapPartitions(iter => {
+          iter.map(t => {
+            val array = t._2._1.toArray.zip(t._2._2.toArray).map(x => x._1 * x._2)
+            (t._1, Vectors.dense(array))
+          })
+        }, true)
+        new DenseVecMatrix(result, numRows(), numCols())
+      }
+      case that: BlockMatrix => {
+        dotProduct(that.toDenseVecMatrix())
+      }
+    }
   }
 
   /**

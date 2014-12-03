@@ -2,9 +2,6 @@ package edu.nju.pasalab.marlin.matrix
 
 import breeze.linalg.{DenseMatrix => BDM}
 
-/**
- * Notice: the code in this file is copy from MLlib, to make it compatible
- */
 
 /**
  * Represents a distributively stored matrix backed by one or more RDDs.
@@ -46,6 +43,12 @@ trait DistributedMatrix extends Serializable {
 
   /** Element-wise divide by another element**/
   def divideBy(d: Double): DistributedMatrix
+
+  /** sum all the elements in matrix, note the Double.MaxValue = 1.7976931348623157E308 **/
+  def sum(): Double
+
+  /** Matrix-matrix dot product**/
+  def dotProduct(other: DistributedMatrix): DistributedMatrix
 
   /** A transpose view of original matrix**/
   def transpose(): BlockMatrix
