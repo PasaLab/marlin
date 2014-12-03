@@ -54,7 +54,7 @@ class DenseMatrix(val numRows: Int, val numCols: Int, val values: Array[Double])
 }
 
 /**
- * Factory methods 
+ * Factory methods
  */
 object Matrices {
 

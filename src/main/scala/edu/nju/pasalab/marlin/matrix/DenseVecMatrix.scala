@@ -164,8 +164,8 @@ class DenseVecMatrix(
 
     resultCols = other.numCols()
 
-    val thisBlocks = toBlockMatrix(blkNum, blkNum)
-    val otherBlocks = other.toBlockMatrix(blkNum, blkNum)
+    val thisBlocks = asInstanceOf[DenseVecMatrix].toBlockMatrix(blkNum, blkNum)
+    val otherBlocks = other.asInstanceOf[DenseVecMatrix].toBlockMatrix(blkNum, blkNum)
     thisBlocks.multiply(otherBlocks, blkNum * blkNum * blkNum)
   }
 
@@ -183,8 +183,8 @@ class DenseVecMatrix(
     require(numCols == otherRows, s"Dimension mismatch: ${numCols} vs ${otherRows}")
     val (mSplitNum, kSplitNum, nSplitNum) =
       MTUtils.splitMethod(numRows(), numCols(), other.numCols(), cores)
-    val thisCollects = toBlockMatrix(mSplitNum, kSplitNum)
-    val otherCollects = other.toBlockMatrix(kSplitNum, nSplitNum)
+    val thisCollects = asInstanceOf[DenseVecMatrix].toBlockMatrix(mSplitNum, kSplitNum)
+    val otherCollects = other.asInstanceOf[DenseVecMatrix].toBlockMatrix(kSplitNum, nSplitNum)
     thisCollects.multiply(otherCollects, cores)
   }
 
@@ -203,8 +203,8 @@ class DenseVecMatrix(
                               splits:(Int, Int, Int), mode: String): BlockMatrix = {
     val otherRows = other.numRows()
     require(numCols == otherRows, s"Dimension mismatch: ${numCols} vs ${otherRows}")
-    val thisCollects = toBlockMatrix(splits._1, splits._2)
-    val otherCollects = other.toBlockMatrix(splits._2, splits._3)
+    val thisCollects = asInstanceOf[DenseVecMatrix].toBlockMatrix(splits._1, splits._2)
+    val otherCollects = other.asInstanceOf[DenseVecMatrix].toBlockMatrix(splits._2, splits._3)
     thisCollects.multiplyBroadcast(otherCollects, parallelism, splits, mode)
   }
 
@@ -312,8 +312,10 @@ class DenseVecMatrix(
         require(numRows() == that.numRows(), s"Dimension mismatch: ${numRows()} vs ${that.numRows()}")
         require(numCols() == that.numCols, s"Dimension mismatch: ${numCols()} vs ${that.numCols()}")
 
-        val result = rows.join(that.rows).map(t =>
-          (t._1, Vectors.fromBreeze((t._2._1.toBreeze + t._2._2.toBreeze).asInstanceOf[BDV[Double]])))
+        val result = rows.join(that.rows).mapPartitions(iter => {
+          iter.map (t =>
+            (t._1, Vectors.fromBreeze((t._2._1.toBreeze + t._2._2.toBreeze).asInstanceOf[BDV[Double]])))
+        }, true)
         new DenseVecMatrix(result, numRows(), numCols())
       }
       case that: BlockMatrix => {
@@ -337,8 +339,10 @@ class DenseVecMatrix(
         require(numRows() == that.numRows(), s"Dimension mismatch: ${numRows()} vs ${other.numRows()}")
         require(numCols == that.numCols, s"Dimension mismatch: ${numCols()} vs ${other.numCols()}")
 
-        val result = rows.join(that.rows).map(t =>
-          (t._1, Vectors.fromBreeze((t._2._1.toBreeze - t._2._2.toBreeze).asInstanceOf[BDV[Double]])))
+        val result = rows.join(that.rows).mapPartitions(iter => {
+          iter.map(t =>
+            (t._1, Vectors.dense(t._2._1.toArray.zip(t._2._2.toArray).map(x => x._1 - x._2))))
+        }, true)
         new DenseVecMatrix(result, numRows(), numCols())
       }
       case that: BlockMatrix => {
@@ -355,7 +359,7 @@ class DenseVecMatrix(
    * @param b the number to be element-wise added
    */
   final def add(b: Double): DenseVecMatrix = {
-    val result = rows.map(t =>(t._1, Vectors.dense(t._2.toArray.map(_ + b))))
+    val result = rows.mapPartitions(iter => {iter.map(t =>(t._1, Vectors.dense(t._2.toArray.map(_ + b))))}, true)
     new DenseVecMatrix(result, numRows(), numCols())
   }
 
@@ -365,7 +369,7 @@ class DenseVecMatrix(
    * @param b a number to be element-wise subtracted
    */
   final def subtract(b: Double): DenseVecMatrix = {
-    val result = rows.map(t =>(t._1, Vectors.dense(t._2.toArray.map(_ - b))))
+    val result = rows.mapPartitions(iter => {iter.map(t =>(t._1, Vectors.dense(t._2.toArray.map(_ - b))))}, true)
     new DenseVecMatrix(result, numRows(), numCols())
   }
 
@@ -375,7 +379,7 @@ class DenseVecMatrix(
    * @param b a number in the format of double
    */
   final def subtractBy(b: Double): DenseVecMatrix = {
-    val result = rows.map(t =>(t._1, Vectors.dense(t._2.toArray.map(b - _ ))))
+    val result = rows.mapPartitions(iter => {iter.map(t =>(t._1, Vectors.dense(t._2.toArray.map(b - _ ))))}, true)
     new DenseVecMatrix(result, numRows(), numCols())
   }
 
@@ -385,7 +389,7 @@ class DenseVecMatrix(
    * @param b a number in the format of double
    */
   final def multiply(b: Double): DenseVecMatrix = {
-    val result = rows.map(t =>(t._1, Vectors.dense(t._2.toArray.map(_ * b))))
+    val result = rows.mapPartitions(iter => {iter.map(t =>(t._1, Vectors.dense(t._2.toArray.map(_ * b))))}, true)
     new DenseVecMatrix(result, numRows(), numCols())
   }
 
@@ -396,7 +400,7 @@ class DenseVecMatrix(
    * @return result in DenseVecMatrix type
    */
   final def divide(b: Double): DenseVecMatrix = {
-    val result = rows.map(t =>(t._1, Vectors.dense(t._2.toArray.map( _ / b))))
+    val result = rows.mapPartitions(iter => {iter.map(t =>(t._1, Vectors.dense(t._2.toArray.map( _ / b))))}, true)
     new DenseVecMatrix(result, numRows(), numCols())
   }
 
@@ -406,7 +410,7 @@ class DenseVecMatrix(
    * @param b a number in the format of double
    */
   final def divideBy(b: Double): DenseVecMatrix = {
-    val result = rows.map(t =>(t._1, Vectors.dense(t._2.toArray.map( b / _))))
+    val result = rows.mapPartitions(iter => {iter.map (t =>(t._1, Vectors.dense(t._2.toArray.map( b / _))))}, true)
     new DenseVecMatrix(result, numRows(), numCols())
   }
 
@@ -586,7 +590,7 @@ class DenseVecMatrix(
      val result = rows.mapPartitions(iter => {
         iter.map( t => {
           (t._1.toInt / mBlockRowSize, t)})
-      }, true).groupByKey().mapPartitions(iter => {
+      }).groupByKey().mapPartitions(iter => {
         iter.map(t => {
           val blockRow = t._1
           val rowLen = if ((blockRow + 1) * mBlockRowSize > numRows()){
@@ -706,15 +710,22 @@ class DenseVecMatrix(
   }
 
   /**
-   * print the matrix out
+   * Print the matrix out
    */
   def print() {
     if (numRows() > 20){
       rows.take(20).foreach( t => println("index: "+t._1 + ", vector: "+ t._2.print(8)))
-      println((numRows() - 20)+ "rows more...")
+      println("there are " + numRows()+ " rows total...")
     }else {
       rows.collect().foreach(t => println("index: "+t._1 + ", vector: "+ t._2.print(8)))
     }
+  }
+
+  /**
+   * Print the whole matrix out
+   */
+  def printAll() {
+    rows.collect().foreach(t => println("index: "+t._1 + ", vector: "+ t._2.print()))
   }
 
   /**

@@ -171,8 +171,8 @@ class DenseVector extends Vector  {
   }
 
   /** used for display the vector**/
-  private[marlin] def print(length: Int): String ={
-    if (length > size){
+  private[marlin] def print(length: Int = size): String ={
+    if (length >= size){
       toArray.mkString(",")
     }else {
       toArray.take(length).mkString(",") + " ..."+ (size - length) +" elements more..."

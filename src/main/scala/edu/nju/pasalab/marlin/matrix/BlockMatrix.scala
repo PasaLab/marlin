@@ -93,7 +93,6 @@ class BlockMatrix(
     require(numCols() == other.numRows(), s"Dimension mismatch: ${numCols()} vs ${other.numRows()}")
     other match {
       case mat: BlockMatrix => {
-
         if (numBlksByCol() != mat.numBlksByRow()) {
           toDenseVecMatrix().multiply(mat.toDenseVecMatrix(), cores)
         } else {
@@ -339,7 +338,8 @@ class BlockMatrix(
           val result = blocks.join(that.blocks).mapValues(t =>{
             val rows = t._1.rows
             val cols = t._1.cols
-            val array = t._1.data.zip(t._2.data).map(x => x._1 * x._2).toArray
+            val array = t._1.data.zip(t._2.data)
+              .map(x => x._1 * x._2).toArray
             new BDM(rows, cols, array)
           })
           new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
@@ -357,8 +357,9 @@ class BlockMatrix(
    */
   final def transpose(): BlockMatrix = {
     val result = blocks.mapPartitions( iter =>{
-      iter.map ( t =>{
-        (new BlockID(t._1.column, t._1.row), t._2.t )
+      iter.map ( x =>{
+        val mat: BDM[Double] = x._2.t.copy
+        (new BlockID(x._1.column, x._1.row), mat )
       })
     })
     new BlockMatrix(result, numCols(), numRows(), numBlksByCol(), numBlksByRow())
@@ -463,7 +464,7 @@ class BlockMatrix(
   def toDenseVecMatrix(): DenseVecMatrix = {
     val mostBlockRowLen = math.ceil( numRows().toDouble / numBlksByRow().toDouble).toInt
     val mostBlockColLen = math.ceil( numCols().toDouble / numBlksByCol().toDouble).toInt
-    //    blocks.cache()
+    // blocks.cache()
     val result = blocks.flatMap( t => {
       val smRows = t._2.rows
       val smCols = t._2.cols
@@ -520,17 +521,25 @@ class BlockMatrix(
   }
 
   /**
-   * print the matrix out
+   * Print the matrix out
    */
   def print() {
     if  (numBlksByRow() * numBlksByCol() > 4){
       blocks.take(4).foreach(t => println("blockID :[" + t._1.row + ", " + t._1.column
         + "], block content below:\n" + t._2.toString()))
-      println("there are " + (numBlksByRow() * numBlksByCol() - 4) + " blocks more")
+      println("there are " + (numBlksByRow() * numBlksByCol()) + " blocks total...")
     }else {
       blocks.collect().foreach(t => println("blockID :[" + t._1.row + ", " + t._1.column
         + "], block content below:\n"+ t._2.toString()))
     }
+  }
+
+  /**
+   * Print the whole matrix out
+   */
+  def printAll() {
+    blocks.collect().foreach(t => println("blockID :[" + t._1.row + ", " + t._1.column
+      + "], block content below:\n"+ t._2.toString()))
   }
 
 }

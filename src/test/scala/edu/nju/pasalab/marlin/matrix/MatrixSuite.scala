@@ -13,9 +13,9 @@ class MatrixSuite extends FunSuite with LocalSparkContext{
   val c = 2
   val data = Seq(
     (0L, Vectors.dense(0.0, 1.0, 2.0, 3.0)),
-    (1L, Vectors.dense(2.0, 3.0, 4.0, 5.0)),
     (2L, Vectors.dense(3.0, 2.0, 1.0, 0.0)),
-    (3L, Vectors.dense(1.0, 1.0, 1.0, 1.0))
+    (3L, Vectors.dense(1.0, 1.0, 1.0, 1.0)),
+    (1L, Vectors.dense(2.0, 3.0, 4.0, 5.0))
   ).map(t => (t._1, t._2))
   val blks = Seq(
     (new BlockID(0, 0), BDM((0.0, 1.0), (2.0, 3.0))),

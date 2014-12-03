@@ -64,4 +64,7 @@ trait DistributedMatrix extends Serializable {
 
   /** Print the matrix out, if the matrix is too large, it will print part**/
   def print()
+
+  /** Print all the matrix out, if the matrix is too large, be careful to use this function**/
+  def printAll()
 }

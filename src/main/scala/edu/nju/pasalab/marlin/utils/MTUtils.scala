@@ -156,9 +156,11 @@ object MTUtils {
    * @return a distributed matrix in DenseVecMatrix type                    
    */
   def loadMatrixFile(sc: SparkContext, path: String, minPartitions: Int = 4): DenseVecMatrix = {
-    if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://") && !path.startsWith("file://")) {
+    if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://")
+      && !path.startsWith("/") && !path.startsWith("~/")) {
       System.err.println("the path is not in local file System, HDFS or Tachyon")
-      System.exit(1)
+//      System.exit(1)
+      throw new IllegalArgumentException("the path is not in local file System, HDFS or Tachyon")
     }
     val file = sc.textFile(path, minPartitions)
     val rows = file.map(t =>{
