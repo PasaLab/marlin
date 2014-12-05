@@ -33,7 +33,6 @@ class MatrixSuite extends FunSuite with LocalSparkContext{
   }
 
 
-
   test("matrix size"){
     val mat = new DenseVecMatrix(indexRows)
     assert(mat.numRows() === m)
@@ -100,12 +99,6 @@ class MatrixSuite extends FunSuite with LocalSparkContext{
     assert(rowSeq.contains((1L, Vectors.dense(2.0, 3.0, 4.0, 5.0))))
     assert(rowSeq.contains((2L, Vectors.dense(3.0, 2.0, 1.0, 0.0))))
     assert(rowSeq.contains((3L, Vectors.dense(1.0, 1.0, 1.0, 1.0))))
-    /*
-    assert(blkSeq.contains(new BlockID(0, 0), BDM((0.0, 1.0),(2.0, 3.0))))
-    assert(blkSeq.contains(new BlockID(0, 1), BDM((2.0, 3.0),(4.0, 5.0))))
-    assert(blkSeq.contains(new BlockID(1, 0), BDM((3.0, 2.0),(1.0, 1.0))))
-    assert(blkSeq.contains(new BlockID(1, 1), BDM((1.0, 0.0),(1.0, 1.0))))
-    */
   }
 
   test("Matrix-matrix and element-wise addition/subtract; element-wise multiply and divide"){
@@ -259,6 +252,8 @@ class MatrixSuite extends FunSuite with LocalSparkContext{
       (7.0, 8.0, 0.0))
    assert(result === self)
   }
+  
+  
 
   test("sum"){
     val mat = new DenseVecMatrix(indexRows)
@@ -281,5 +276,17 @@ class MatrixSuite extends FunSuite with LocalSparkContext{
     assert(blkMat.dotProduct(blkMat).toBreeze() === dotProduct)
   }
 
-
+   test("DenseVecMatrix inverse") {
+    val row = Seq(
+      (0L, Vectors.dense(4.0, 3.0)),
+      (1L, Vectors.dense(3.0, 2.0))   
+    ).map(t => (t._1, t._2))
+    val mat = new DenseVecMatrix(sc.parallelize(row,2))
+    val inverse = mat.inverse()
+    val identity = BDM(
+      (-2.0, 3.0),
+      (3.0, -4.0))
+    assert(inverse.toBreeze() === identity)
+   }
+ 
 }

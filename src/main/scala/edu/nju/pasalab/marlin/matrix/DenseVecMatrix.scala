@@ -15,7 +15,7 @@ import org.apache.spark.SparkContext._
 import org.apache.spark.rdd.RDD
 import org.apache.hadoop.io.{Text, NullWritable}
 import org.apache.hadoop.mapred.TextOutputFormat
-
+import scala.util.control.Breaks._
 import edu.nju.pasalab.marlin.utils.MTUtils
 
 
@@ -275,7 +275,7 @@ class DenseVecMatrix(
           }else t
         }}, true)
       lowerMat = new DenseVecMatrix(lresult, numRows(), numCols())
-      //cache the lower matrix to speed the compution
+      //cache the lower matrix to speed the computation
       val result = matr.rows.mapPartitions(iter =>{
         iter.map(t => {
           if ( t._1.toInt > i){
@@ -290,7 +290,7 @@ class DenseVecMatrix(
           else t
         })}, true)
       matr = new DenseVecMatrix(result, numRows(), numCols())
-      //cache the matrix to speed the compution
+      //cache the matrix to speed the computation
       matr.rows.cache()
       if (i % 2000 == 0){
         if (matr.rows.context.getCheckpointDir.isDefined)
@@ -300,6 +300,95 @@ class DenseVecMatrix(
     (lowerMat, matr)
   }
 
+  /**
+   * This function is still in progress.
+   * get the inverse of this DenseVecMatrix
+   *
+   * @return the inverse of the square matrix, zero matrix if the DenseVecMatrix is singular
+   */
+  def inverse(mode: String = "auto"): DenseVecMatrix = {
+    val iterations = numRows()
+    require(iterations == numCols(),
+      s"currently we only support square matrix: ${iterations} vs ${numCols}")
+
+    var matr = new DenseVecMatrix(rows.map( t => {
+      val array = Array.ofDim[Double](numCols().toInt)
+      val v = t._2.toArray
+      for ( k <- 0 until v.length){
+        array(k) = v.apply(k)
+      }
+      (t._1, Vectors.dense(array))}))
+
+    val num = iterations.toInt
+
+    breakable {for (i <- 0 until num) {  
+     val updateVec = matr.rows.map(t => (t._1, t._2.toArray.apply(i))).collect()
+     val ideal = updateVec.maxBy(t => t._2.abs)
+     var candidate = 1.0 / ideal._2 
+     if ((1.0 / ideal._2).isInfinite() || (1.0 / ideal._2).isNaN) {
+       // singular　matrix, exit
+        val result = matr.rows.mapPartitions( iter => {
+        iter.map { t =>
+          (t._1, Vectors.dense(Array.fill[Double](num)(0)))
+          }})  
+        matr = new DenseVecMatrix(result, numRows(), numCols())
+        break      
+     }
+     else if ((1.0 / updateVec.apply(i)._2).isInfinite() || (1.0 / updateVec.apply(i)._2).isNaN){
+       //need to swap the rows with row number ideal_.1 and i
+       val currentRow = matr.rows.filter(t => t._1.toInt == i).first()
+       val idealRow = matr.rows.filter(t => t._1 == ideal._1).first()
+       val result = matr.rows.map( t => 
+         if (t._1.toInt == i)
+           idealRow
+         else if (t._1.toInt == ideal._1)
+           currentRow
+         else 
+           t)
+        matr = new DenseVecMatrix(result, numRows(), numCols())     
+     }
+     val vector = matr.rows.filter(t => t._1.toInt == i).map(t => t._2).first().toArray
+     val c = matr.rows.context.broadcast(vector.apply(i))
+     
+   //  vector.foreach(t => (t/c.value))
+     for (i <- 0 until vector.length)
+       vector.update(i, vector(i)/c.value)
+     val broadRow = matr.rows.context.broadcast(vector)
+     
+
+      //TODO: here collect() is too much cost, find another method
+      val broadCol = matr.rows.context.broadcast(updateVec.map(t => t._2))
+      
+      val result = matr.rows.mapPartitions( iter => {
+        iter.map { t =>
+          val vec = t._2.toArray;
+          if (t._1.toInt == i){
+            for (k <- 0 until vec.length)              
+              if (k == i) {
+                vec.update(k, broadRow.value.apply(k) / c.value)
+              }
+              else {vec.update(k, broadRow.value.apply(k))
+              }              
+          }
+          else {
+            for (k <- 0 until vec.length if k != i) {
+              vec.update(k, vec(k) - broadCol.value.apply(t._1.toInt) * broadRow.value.apply(k))    
+            }           
+          }
+          if (t._1.toInt != i)
+            vec.update(i, vec(i) / (-c.value))
+          (t._1, Vectors.dense(vec))
+          }}, true)        
+       matr = new DenseVecMatrix(result, numRows(), numCols())
+      //cache the matrix to speed the computation
+      matr.rows.cache()
+      /*
+      if (i % 2000 == 0)
+        matr.rows.checkpoint()
+        * */
+    }} 
+    matr
+  }
 
   /**
    * This matrix add another DistributedMatrix
