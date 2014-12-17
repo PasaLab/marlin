@@ -19,7 +19,7 @@ import org.apache.spark.SparkContext._
  */
 
 class BlockMatrix(
-    val blocks: RDD[(BlockID, BDM[Double])],
+    private[marlin] val blocks: RDD[(BlockID, BDM[Double])],
     private var nRows: Long,
     private var nCols: Long,
     private var blksByRow: Int,
@@ -365,6 +365,13 @@ class BlockMatrix(
     new BlockMatrix(result, numCols(), numRows(), numBlksByCol(), numBlksByRow())
   }
 
+  /**
+   * This method still works in progress!
+   * Get the inverse result of the matrix
+   */
+  def inverse(): DenseVecMatrix = {
+    toDenseVecMatrix().inverse()
+  }
   /**
    * Using spark-property broadcast to decrease time used in the matrix-matrix multiplication
    *

@@ -1,6 +1,6 @@
 package edu.nju.pasalab.marlin.matrix
 
-import edu.nju.pasalab.marlin.utils.LocalSparkContext
+import edu.nju.pasalab.marlin.utils.{MTUtils, LocalSparkContext}
 import org.apache.spark.rdd.RDD
 import org.scalatest.FunSuite
 import breeze.linalg.{DenseMatrix => BDM}
@@ -241,6 +241,7 @@ class MatrixSuite extends FunSuite with LocalSparkContext{
     ).map(t => (t._1, t._2))
     val mat = new DenseVecMatrix(sc.parallelize(row,2))
     val (l, u) = mat.luDecompose()
+//    val (l, u) = mat.luDecompose2(4)
 //    l.print()
 //    u.print()
     val result = l.multiply(u, 4).toBreeze()
@@ -253,8 +254,6 @@ class MatrixSuite extends FunSuite with LocalSparkContext{
    assert(result === self)
   }
   
-  
-
   test("sum"){
     val mat = new DenseVecMatrix(indexRows)
     val blkMat = new BlockMatrix(blocks)
@@ -288,5 +287,27 @@ class MatrixSuite extends FunSuite with LocalSparkContext{
       (3.0, -4.0))
     assert(inverse.toBreeze() === identity)
    }
+
+  test("repeat by row and column") {
+    val mat = new DenseVecMatrix(indexRows)
+    val mat2ByRow = MTUtils.repeatByRow(mat, 2)
+    val mat2ByCol = MTUtils.repeatByColumn(mat, 2)
+    val expected1 = BDM(
+      (0.0, 1.0, 2.0, 3.0, 0.0, 1.0, 2.0, 3.0),
+      (2.0, 3.0, 4.0, 5.0, 2.0, 3.0, 4.0 ,5.0),
+      (3.0, 2.0, 1.0, 0.0, 3.0, 2.0, 1.0, 0.0),
+      (1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0))
+    assert(mat2ByRow.toBreeze() === expected1)
+    val expected2 = BDM(
+      (0.0, 1.0, 2.0, 3.0),
+      (2.0, 3.0, 4.0, 5.0),
+      (3.0, 2.0, 1.0, 0.0),
+      (1.0, 1.0, 1.0, 1.0),
+      (0.0, 1.0, 2.0, 3.0),
+      (2.0, 3.0, 4.0, 5.0),
+      (3.0, 2.0, 1.0, 0.0),
+      (1.0, 1.0, 1.0, 1.0))
+    assert(mat2ByCol.toBreeze() === expected2)
+  }
  
 }

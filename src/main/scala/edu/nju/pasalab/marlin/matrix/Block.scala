@@ -31,8 +31,8 @@ case class Block(val blockID: BlockID, val matrix: BDM[Double]) extends Serializ
 /**
  * BlockID is the ID of Blocks split from the Matrix
  *
- * @param row starts form 0 to num_of_rows -1
- * @param column starts form 0 to num_of_columns-1
+ * @param row starts form 0 until num_of_rows
+ * @param column starts form 0 until num_of_columns
  */
 class BlockID(val row: Int ,val column: Int, val seq: Int = 0) extends Serializable {
 

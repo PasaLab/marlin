@@ -1,6 +1,7 @@
 package edu.nju.pasalab.marlin.matrix
 
 import java.io.IOException
+import java.util.Calendar
 
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, Path}
@@ -20,7 +21,7 @@ import edu.nju.pasalab.marlin.utils.MTUtils
 
 
 class DenseVecMatrix(
-    val rows: RDD[(Long, DenseVector)],
+    private[marlin] val rows: RDD[(Long, DenseVector)],
     private var nRows: Long,
     private var nCols: Long) extends DistributedMatrix{
 
@@ -210,7 +211,7 @@ class DenseVecMatrix(
 
 
   /**
-   * This function is still in progress. it needs to do more work
+   * This function still works in progress. it needs to do more work
    * LU decompose this DenseVecMatrix to generate a lower triangular matrix L
    * and a upper triangular matrix U
    *
@@ -243,8 +244,8 @@ class DenseVecMatrix(
     // Matrices.fromBreeze(breeze.linalg.lowerTriangular(temp._1))
     // }
     //
-    //copy construct a IndexMatrix to maintain the original matrix
-    var matr = new DenseVecMatrix(rows.map(t => {
+    /**copy construct a DenseVecMatrix to maintain the original matrix **/
+    var mat = new DenseVecMatrix(rows.map(t => {
       val array = Array.ofDim[Double](numCols().toInt)
       val v = t._2.toArray
       for (k <- 0 until v.length) {
@@ -252,20 +253,21 @@ class DenseVecMatrix(
       }
       (t._1, Vectors.dense(array))
     }))
+
     val num = iterations.toInt
     var lowerMat = MTUtils.zerosDenVecMatrix(rows.context, numRows(), numCols().toInt)
     for (i <- 0 until num) {
-      val vector = matr.rows.filter(t => t._1.toInt == i).map(t => t._2).first()
-      val c = matr.rows.context.broadcast(vector.apply(i))
-      val broadVec = matr.rows.context.broadcast(vector)
+      val vector = mat.rows.filter(t => t._1.toInt == i).map(t => t._2).first()
+      val c = mat.rows.context.broadcast(vector.apply(i))
+      val broadVec = mat.rows.context.broadcast(vector)
       //TODO: here we omit the compution of L
       //TODO: here collect() is too much cost, find another method
-      val lupdate = matr.rows.map( t => (t._1 , t._2.toArray.apply(i) / c.value)).collect()
+      val lupdate = mat.rows.map( t => (t._1 , t._2.toArray.apply(i) / c.value)).collect()
       val updateVec = Array.ofDim[Double](num)
       for ( l <- lupdate){
         updateVec.update(l._1.toInt , l._2)
       }
-      val broadLV = matr.rows.context.broadcast(updateVec)
+      val broadLV = mat.rows.context.broadcast(updateVec)
       val lresult = lowerMat.rows.mapPartitions( iter => {
         iter.map { t =>
           if ( t._1.toInt >= i) {
@@ -276,11 +278,11 @@ class DenseVecMatrix(
         }}, true)
       lowerMat = new DenseVecMatrix(lresult, numRows(), numCols())
       //cache the lower matrix to speed the computation
-      val result = matr.rows.mapPartitions(iter =>{
+      val result = mat.rows.mapPartitions(iter =>{
         iter.map(t => {
           if ( t._1.toInt > i){
             val vec = t._2.toArray
-            val lupdate = vec.apply(i) / c.value
+//            val lupdate = vec.apply(i) / c.value
             val mfactor = -vec.apply(i) / c.value
             for (k <- 0 until vec.length) {
               vec.update(k, vec.apply(k) + mfactor * broadVec.value.apply(k))
@@ -289,19 +291,27 @@ class DenseVecMatrix(
           }
           else t
         })}, true)
-      matr = new DenseVecMatrix(result, numRows(), numCols())
+      mat = new DenseVecMatrix(result, numRows(), numCols())
       //cache the matrix to speed the computation
-      matr.rows.cache()
+//      mat.rows.cache()
+      if (i % 50 == 0){
+        println("process has finish: " + i)
+        println(Calendar.getInstance().getTime)
+      }
       if (i % 2000 == 0){
-        if (matr.rows.context.getCheckpointDir.isDefined)
-          matr.rows.checkpoint()
+        if (mat.rows.context.getCheckpointDir.isDefined)
+          mat.rows.checkpoint()
       }
     }
-    (lowerMat, matr)
+    (lowerMat, mat)
+  }
+
+  def inverse(): DenseVecMatrix = {
+    inverse("auto")
   }
 
   /**
-   * This function is still in progress.
+   * This function still works in progress.
    * get the inverse of this DenseVecMatrix
    *
    * @return the inverse of the square matrix, zero matrix if the DenseVecMatrix is singular
@@ -324,8 +334,8 @@ class DenseVecMatrix(
     breakable {for (i <- 0 until num) {  
      val updateVec = matr.rows.map(t => (t._1, t._2.toArray.apply(i))).collect()
      val ideal = updateVec.maxBy(t => t._2.abs)
-     var candidate = 1.0 / ideal._2 
-     if ((1.0 / ideal._2).isInfinite() || (1.0 / ideal._2).isNaN) {
+//     var candidate = 1.0 / ideal._2
+     if ((1.0 / ideal._2).isInfinite || (1.0 / ideal._2).isNaN) {
        // singular　matrix, exit
         val result = matr.rows.mapPartitions( iter => {
         iter.map { t =>
@@ -334,7 +344,7 @@ class DenseVecMatrix(
         matr = new DenseVecMatrix(result, numRows(), numCols())
         break      
      }
-     else if ((1.0 / updateVec.apply(i)._2).isInfinite() || (1.0 / updateVec.apply(i)._2).isNaN){
+     else if ((1.0 / updateVec.apply(i)._2).isInfinite || (1.0 / updateVec.apply(i)._2).isNaN){
        //need to swap the rows with row number ideal_.1 and i
        val currentRow = matr.rows.filter(t => t._1.toInt == i).first()
        val idealRow = matr.rows.filter(t => t._1 == ideal._1).first()
@@ -361,7 +371,7 @@ class DenseVecMatrix(
       
       val result = matr.rows.mapPartitions( iter => {
         iter.map { t =>
-          val vec = t._2.toArray;
+          val vec = t._2.toArray
           if (t._1.toInt == i){
             for (k <- 0 until vec.length)              
               if (k == i) {

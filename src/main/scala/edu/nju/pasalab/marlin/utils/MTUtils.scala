@@ -54,14 +54,15 @@ object MTUtils {
    * @param sc spark context
    * @param nRows the number of rows of the whole matrix
    * @param nColumns the number of columns of the whole matrix
+   * @param numPartitions the partitions you want to assign
    * @param distribution the distribution of the elements in the matrix, default is U[0.0, 1.0]
    * @return DenseVecMatrix
    */
   def randomDenVecMatrix(sc: SparkContext,
       nRows: Long,
       nColumns: Int,
-      distribution: RandomDataGenerator[Double] = new UniformGenerator(0.0, 1.0),
-      numPartitions: Int = 0): DenseVecMatrix = {
+      numPartitions: Int = 0,
+      distribution: RandomDataGenerator[Double] = new UniformGenerator(0.0, 1.0)): DenseVecMatrix = {
     
     val rows = RandomRDDs.randomDenVecRDD(sc, distribution, nRows, nColumns, numPartitionsOrDefault(sc, numPartitions))
     new DenseVecMatrix(rows, nRows, nColumns)  
@@ -343,6 +344,63 @@ object MTUtils {
     }
   }
 
+  /**
+   * Like function rep in R, repeat the matrix by row to create a new matrix
+   * @param matrix the matrix to be repeated
+   * @param times the times to repeat the matrix, 1 means do nothing, 2 means repeat once
+   */
+  def repeatByRow(matrix: DistributedMatrix, times: Int): DistributedMatrix = {
+    require(times > 0, s"repeat times: $times illegal")
+    if (times == 1){
+      matrix
+    }else {
+      matrix match {
+        case vecMatrix: DenseVecMatrix => {
+          val result = vecMatrix.rows.map( t =>
+            (t._1, Vectors.dense(List.fill(times)(t._2.toArray).flatten.toArray)) )
+          new DenseVecMatrix(result, vecMatrix.numRows(), vecMatrix.numCols() * times)
+        }
+        case blockMatrix: BlockMatrix => {
+          val result = blockMatrix.blocks.flatMap( t => {
+            for ( i <- 0 until times)
+            yield (new BlockID(t._1.row, t._1.column + i * blockMatrix.numBlksByCol()), t._2)
+          })
+          new BlockMatrix(result, blockMatrix.numRows(),
+            blockMatrix.numCols(), blockMatrix.numBlksByRow(), blockMatrix.numBlksByCol() * times)
+        }
+      }
+    }
+  }
+
+  /**
+   * Like function rep in R, repeat the matrix by column to create a new matrix
+   * @param matrix the matrix to be repeated
+   * @param times the times to repeat the matrix, 1 means do nothing, 2 means repeat once
+   */
+  def repeatByColumn(matrix: DistributedMatrix, times: Int): DistributedMatrix = {
+    require(times > 0, s"repeat times: $times illegal")
+    if (times == 1){
+      matrix
+    }else {
+      matrix match  {
+        case vecMatrix: DenseVecMatrix => {
+          val result = vecMatrix.rows.flatMap(t => {
+            for ( i <- 0 until times)
+            yield (t._1 + i * vecMatrix.numRows(), t._2)
+          })
+          new DenseVecMatrix(result, vecMatrix.numRows() * times, vecMatrix.numCols())
+        }
+        case  blockMatrix: BlockMatrix => {
+          val result = blockMatrix.blocks.flatMap(t =>{
+            for ( i <- 0 until times)
+            yield (new BlockID(t._1.row + i * blockMatrix.numBlksByRow(), t._1.column), t._2)
+          })
+          new BlockMatrix(result, blockMatrix.numRows() * times, blockMatrix.numCols()
+            , blockMatrix.numBlksByRow() * times, blockMatrix.numBlksByCol())
+        }
+      }
+    }
+  }
 
   /**
    * Returns `numPartitions` if it is positive, or `sc.defaultParallelism` otherwise.
