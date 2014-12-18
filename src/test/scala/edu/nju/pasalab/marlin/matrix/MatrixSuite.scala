@@ -309,5 +309,19 @@ class MatrixSuite extends FunSuite with LocalSparkContext{
       (1.0, 1.0, 1.0, 1.0))
     assert(mat2ByCol.toBreeze() === expected2)
   }
- 
+    /*
+   test("Matrix SVD"){
+     val row = Seq(
+     (0L, Vectors.dense(2.0, 0.0, 8.0, 6.0, 0.0)),
+     (1L, Vectors.dense(1.0, 6.0, 0.0, 1.0, 7.0)), 
+     (2L, Vectors.dense(5.0, 0.0, 7.0, 4.0, 0.0)), 
+     (3L, Vectors.dense(7.0, 0.0, 8.0, 5.0, 0.0)), 
+     (4L, Vectors.dense(0.0, 10.0, 0.0, 0.0, 7.0))
+     ).map(t => (t._1, t._2))
+     val mat = new DenseVecMatrix(sc.parallelize(row,2))
+     val svd = mat.computeSVD(3, true)
+     assert(svd.s.toBreeze == Vectors.dense(17.92, 15.17, 3.56).toBreeze)  
+   }
+   * 
+   */
 }
