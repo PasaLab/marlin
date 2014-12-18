@@ -1,6 +1,5 @@
 *.swp
 *~
-project/
 target/
 .cache
 .classpath
