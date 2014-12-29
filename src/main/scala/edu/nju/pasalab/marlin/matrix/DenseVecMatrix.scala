@@ -1,25 +1,3 @@
-/*
-package edu.nju.pasalab.marlin.matrix
-
-import java.io.IOException
-import java.util.Calendar
-
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{FileSystem, Path}
-
-import scala.collection.mutable.ArrayBuffer
-import scala.collection.parallel.mutable.ParArray
-
-import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV}
-import org.apache.log4j.{Logger, Level}
-import org.apache.spark.SparkContext
-import org.apache.spark.SparkContext._
-import org.apache.spark.rdd.RDD
-import org.apache.hadoop.io.{Text, NullWritable}
-import org.apache.hadoop.mapred.TextOutputFormat
-import scala.util.control.Breaks._
-import edu.nju.pasalab.marlin.utils.MTUtils
-*/
 package edu.nju.pasalab.marlin.matrix
 
 import java.io.IOException
@@ -69,7 +47,7 @@ import org.apache.spark.util.Utils
 class DenseVecMatrix(
   private[marlin] val rows: RDD[(Long, DenseVector)],
   private var nRows: Long,
-  private var nCols: Long) extends DistributedMatrix with Logging{
+  private var nCols: Long) extends DistributedMatrix with Logging {
 
   private var resultCols: Long = 0
   def this(rows: RDD[(Long, DenseVector)]) = this(rows, 0L, 0)
@@ -349,6 +327,77 @@ class DenseVecMatrix(
       }
     }
     (lowerMat, mat)
+  }
+
+  /**
+   * This function still works in progress.
+   * get the result of cholesky decomposition of this DenseVecMatrix
+   *
+   * @return matrix A, where A * A' = Matrix
+   */
+  def choleskyDecompose(mode: String = "auto"): DenseVecMatrix = {
+    val iterations = numRows
+    require(iterations == numCols,
+      s"currently we only support square matrix: ${iterations} vs ${numCols}")
+    if (!rows.context.getCheckpointDir.isDefined) {
+      println("Waning, checkpointdir is not set! We suggest you set it before running luDecopose")
+    }
+    // object LUmode extends Enumeration {
+    // val LocalBreeze, DistSpark = Value
+    // }
+    // val computeMode = mode match {
+    // case "auto" => if ( iterations > 10000L){
+    // LUmode.DistSpark
+    // }else {
+    // LUmode.LocalBreeze
+    // }
+    // case "breeze" => LUmode.LocalBreeze
+    // case "dist" => LUmode.DistSpark
+    // case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
+    // }
+    //
+    // val (lower: IndexMatrix, upper: IndexMatrix) = computeMode match {
+    // case LUmode.LocalBreeze =>
+    // val temp = bLU(toBreeze())
+    // Matrices.fromBreeze(breeze.linalg.lowerTriangular(temp._1))
+    // }
+    //
+    /**copy construct a DenseVecMatrix to maintain the original matrix **/
+    var mat = new DenseVecMatrix(rows.map(t => {
+      val array = Array.ofDim[Double](numCols().toInt)
+      val v = t._2.toArray
+      for (k <- 0 until v.length) {
+        array(k) = v.apply(k)
+      }
+      (t._1, Vectors.dense(array))
+    }))
+
+    val num = iterations.toInt
+    var lowerMat = MTUtils.zerosDenVecMatrix(rows.context, numRows(), numCols().toInt)
+    for (i <- 0 until num) {
+      val rowVector = mat.rows.filter(t => t._1.toInt == i).map(t => t._2).first()
+      val colVector = mat.rows.map(t => t._2.toArray.apply(i)).collect()
+      val c = mat.rows.context.broadcast(rowVector.apply(i))
+      val broadRowVec = mat.rows.context.broadcast(rowVector)
+      val broadColVec = mat.rows.context.broadcast(colVector)
+      val result = mat.rows.mapPartitions(iter => {
+        iter.map(t =>
+          if (t._1.toInt >= i) {
+            val vec = t._2.toArray
+            if (t._1.toInt == i) {
+              for (k <- i until vec.length)
+                vec.update(k, vec(k) / Math.sqrt(c.value))
+            } else {
+              vec.update(i, vec(i) / Math.sqrt(c.value))
+              for (k <- i + 1 until vec.length)
+                vec.update(k, vec(k) - broadColVec.value.apply(t._1.toInt) * broadRowVec.value.apply(k) / c.value)
+            }
+            (t._1, Vectors.dense(vec))
+          } else t)
+      }, true)
+      mat = new DenseVecMatrix(result, numRows(), numCols())
+    }
+    mat
   }
 
   def inverse(): DenseVecMatrix = {
