@@ -50,7 +50,7 @@ class DenseMatrix(val numRows: Int, val numCols: Int, val values: Array[Double])
 
   override def toArray: Array[Double] = values
 
-  private[matrix] override def toBreeze: BM[Double] = new BDM[Double](numRows, numCols, values)
+  private[matrix] override def toBreeze: BM[Double] = new BDM[Double](numRows, numCols, values) 
 }
 
 /**

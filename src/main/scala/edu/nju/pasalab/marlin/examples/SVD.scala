@@ -40,14 +40,21 @@ object SVD {
      (3L, Vectors.dense(7.0, 0.0, 8.0, 5.0, 0.0)), 
      (4L, Vectors.dense(0.0, 10.0, 0.0, 0.0, 7.0))
      ).map(t => (t._1, t._2))
+  
+    /*
+    val row = Seq(
+     (0L, Vectors.dense(3.0, 1.0, 1.0)),
+     (1L, Vectors.dense(-1.0, 3.0, 1.0))
+     ).map(t => (t._1, t._2))
+     **/
      val mat = new DenseVecMatrix(sc.parallelize(row,2))
-     val svd = mat.computeSVD(3, true)
+     val svd = mat.computeSVD(5, true)
      println("U:")
-     svd.U.printAll();
+     svd._1.printAll();
      println("SIGMA:")
-     svd.s.toArray.foreach(println)
+     println(svd._2.toString())
      println("V:")
-     svd.V.toString();
+     println(svd._3.toString());
      
      
      /*

@@ -32,7 +32,8 @@ import breeze.linalg.{
   DenseVector => BDV,
   SparseVector => BSV,
   axpy => brzAxpy,
-  svd => brzSvd
+  svd => brzSvd,
+  LU => brzLU
 }
 import breeze.numerics.{ sqrt => brzSqrt }
 import com.github.fommil.netlib.BLAS.{ getInstance => blas }
@@ -239,6 +240,68 @@ class DenseVecMatrix(
    *
    * @return a pair (lower triangular matrix, upper triangular matrix)
    */
+  /*
+  def luDecomposeNew(mode: String = "auto"): (DenseVecMatrix, DenseVecMatrix, Array[Double]) = {
+    val iterations = numRows
+    require(iterations == numCols,
+      s"currently we only support square matrix: ${iterations} vs ${numCols}")
+    if (!rows.context.getCheckpointDir.isDefined) {
+      println("Waning, checkpointdir is not set! We suggest you set it before running luDecopose")
+    }
+
+    object LUmode extends Enumeration {
+      val LocalBreeze, DistSpark = Value
+    }
+    val computeMode = mode match {
+      case "auto" => if (iterations > 3200L) {
+        LUmode.DistSpark
+      } else {
+        LUmode.LocalBreeze
+      }
+      case "breeze" => LUmode.LocalBreeze
+      case "dist" => LUmode.DistSpark
+      case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
+    }
+
+    val (lower: DenseVecMatrix, upper: DenseVecMatrix, permutation) = computeMode match {
+      case LUmode.LocalBreeze =>
+        val temp = brzLU(toBreeze())
+        val l = breeze.linalg.lowerTriangular(temp._1)
+        for (i <- 0 until l.rows) {
+          l.update(i, i, 1.0)
+        }
+        val u = breeze.linalg.upperTriangular(temp._1)
+        (Matrices.fromBreeze(l), Matrices.fromBreeze(u), temp._2)
+
+      case LUmode.DistSpark =>
+
+        val subNumRows = numRows / 2;
+        val subMatrixA1 = getSubMatrix(0, subNumRows, 0, subNumRows.toInt)
+        val subMatrixA2 = getSubMatrix(0, subNumRows, subNumRows.toInt + 1, numCols.toInt)
+        val subMatrixA3 = getSubMatrix(subNumRows.toInt + 1, numRows, 0, subNumRows.toInt)
+        val subMatrixA4 = getSubMatrix(subNumRows.toInt + 1, numRows, subNumRows.toInt + 1, numCols.toInt)
+        val (l1, u1, p1) = subMatrixA1.luDecomposeNew("auto")
+
+        val lresult = rows.mapPartitions(iter => {
+          iter.map { t =>
+            if (t._1.toInt >= i) {
+              val vec = t._2.toArray
+              vec.update(i, broadLV.value.apply(t._1.toInt))
+              (t._1, Vectors.dense(vec))
+            } else t
+          }
+        }, true)
+    }
+
+  }
+*/
+  /**
+   * This function still works in progress. it needs to do more work
+   * LU decompose this DenseVecMatrix to generate a lower triangular matrix L
+   * and a upper triangular matrix U
+   *
+   * @return a pair (lower triangular matrix, upper triangular matrix)
+   */
   def luDecompose(mode: String = "auto"): (DenseVecMatrix, DenseVecMatrix) = {
     val iterations = numRows
     require(iterations == numCols,
@@ -246,26 +309,44 @@ class DenseVecMatrix(
     if (!rows.context.getCheckpointDir.isDefined) {
       println("Waning, checkpointdir is not set! We suggest you set it before running luDecopose")
     }
-    // object LUmode extends Enumeration {
-    // val LocalBreeze, DistSpark = Value
-    // }
-    // val computeMode = mode match {
-    // case "auto" => if ( iterations > 10000L){
-    // LUmode.DistSpark
-    // }else {
-    // LUmode.LocalBreeze
-    // }
-    // case "breeze" => LUmode.LocalBreeze
-    // case "dist" => LUmode.DistSpark
-    // case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
-    // }
-    //
-    // val (lower: IndexMatrix, upper: IndexMatrix) = computeMode match {
-    // case LUmode.LocalBreeze =>
-    // val temp = bLU(toBreeze())
-    // Matrices.fromBreeze(breeze.linalg.lowerTriangular(temp._1))
-    // }
-    //
+    /*
+    object LUmode extends Enumeration {
+      val LocalBreeze, DistSpark = Value
+    }
+    val computeMode = mode match {
+      case "auto" => if (iterations > 3200L) {
+        LUmode.DistSpark
+      } else {
+        LUmode.LocalBreeze
+      }
+      case "breeze" => LUmode.LocalBreeze
+      case "dist" => LUmode.DistSpark
+      case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
+    }
+
+    val (lower: DenseVecMatrix, upper: DenseVecMatrix, permutation) = computeMode match {
+      case LUmode.LocalBreeze =>
+        val temp = brzLU(toBreeze())
+        val l = breeze.linalg.lowerTriangular(temp._1)
+        for (i <- 0 until l.rows) {
+          l.update(i, i, 1.0)
+        }
+        val u = breeze.linalg.upperTriangular(temp._1) 
+        (Matrices.fromBreeze(l), Matrices.fromBreeze(u), temp._2)
+      case LUmode.DistSpark => 
+        
+        val subNumRows = numRows / 2;
+        val subMatrixA1 = getSubMatrix(0, subNumRows, 0, subNumRows.toInt)
+        val subMatrixA2 = getSubMatrix(0, subNumRows, subNumRows.toInt + 1, numCols.toInt)
+        val subMatrixA3 = getSubMatrix(subNumRows.toInt + 1, numRows, 0, subNumRows.toInt)
+        val subMatrixA4 = getSubMatrix(subNumRows.toInt + 1, numRows, subNumRows.toInt + 1, numCols.toInt)     
+        val (l1, u1, p1) = subMatrixA1.luDecompose("auto") 
+        val u2 = 
+        
+    }
+    * 
+    */
+
     /**copy construct a DenseVecMatrix to maintain the original matrix **/
     var mat = new DenseVecMatrix(rows.map(t => {
       val array = Array.ofDim[Double](numCols().toInt)
@@ -425,75 +506,94 @@ class DenseVecMatrix(
     }))
 
     val num = iterations.toInt
+    val permutation = Array.range(0, num)
 
-    breakable {
-      for (i <- 0 until num) {
-        val updateVec = matr.rows.map(t => (t._1, t._2.toArray.apply(i))).collect()
-        val ideal = updateVec.maxBy(t => t._2.abs)
-        //     var candidate = 1.0 / ideal._2
-        if ((1.0 / ideal._2).isInfinite || (1.0 / ideal._2).isNaN) {
-          // singular　matrix, exit
-          val result = matr.rows.mapPartitions(iter => {
-            iter.map { t =>
-              (t._1, Vectors.dense(Array.fill[Double](num)(0)))
-            }
-          })
-          matr = new DenseVecMatrix(result, numRows(), numCols())
-          break
-        } else if ((1.0 / updateVec.apply(i)._2).isInfinite || (1.0 / updateVec.apply(i)._2).isNaN) {
-          //need to swap the rows with row number ideal_.1 and i
-          val currentRow = matr.rows.filter(t => t._1.toInt == i).first()
-          val idealRow = matr.rows.filter(t => t._1 == ideal._1).first()
-          val result = matr.rows.map(t =>
-            if (t._1.toInt == i)
-              idealRow
-            else if (t._1.toInt == ideal._1)
-              currentRow
-            else
-              t)
-          matr = new DenseVecMatrix(result, numRows(), numCols())
-        }
-        val vector = matr.rows.filter(t => t._1.toInt == i).map(t => t._2).first().toArray
-        val c = matr.rows.context.broadcast(vector.apply(i))
 
-        //  vector.foreach(t => (t/c.value))
-        for (i <- 0 until vector.length)
-          vector.update(i, vector(i) / c.value)
-        val broadRow = matr.rows.context.broadcast(vector)
+    for (i <- 0 until num) {
 
-        //TODO: here collect() is too much cost, find another method
-        val broadCol = matr.rows.context.broadcast(updateVec.map(t => t._2))
+      var updateVec = matr.rows.map(t => (t._1, t._2.toArray.apply(i))).collect()
+      val ideal = updateVec.filter(_._1.toInt >= i).maxBy(t => t._2.abs)
 
-        val result = matr.rows.mapPartitions(iter => {
-          iter.map { t =>
-            val vec = t._2.toArray
-            if (t._1.toInt == i) {
-              for (k <- 0 until vec.length)
-                if (k == i) {
-                  vec.update(k, broadRow.value.apply(k) / c.value)
-                } else {
-                  vec.update(k, broadRow.value.apply(k))
-                }
-            } else {
-              for (k <- 0 until vec.length if k != i) {
-                vec.update(k, vec(k) - broadCol.value.apply(t._1.toInt) * broadRow.value.apply(k))
-              }
-            }
-            if (t._1.toInt != i)
-              vec.update(i, vec(i) / (-c.value))
-            (t._1, Vectors.dense(vec))
-          }
-        }, true)
+      if (math.abs(ideal._2) < 1.0e-20) {
+        throw new IllegalArgumentException("The matrix must be non-singular")
+      } else if (i != ideal._1.toInt) {
+        //need to swap the rows with row number ideal_.1 and i
+        val currentRow = matr.rows.filter(t => t._1.toInt == i).first()
+        val idealRow = matr.rows.filter(t => t._1 == ideal._1).first()
+        val result = matr.rows.map(t =>
+          if (t._1.toInt == i)
+            (t._1, idealRow._2)
+          else if (t._1.toInt == ideal._1)
+            (t._1, currentRow._2)
+          else
+            t)
         matr = new DenseVecMatrix(result, numRows(), numCols())
-        //cache the matrix to speed the computation
-        matr.rows.cache()
-        /*
+        //updateVec = matr.rows.map(t => (t._1, t._2.toArray.apply(i))).collect()
+        val tmp = updateVec(i)._2
+        updateVec.update(i, (updateVec(i)._1, idealRow._2.apply(i)))
+        updateVec.update(idealRow._1.toInt, (updateVec(i)._1, tmp))
+
+        val tmp2 = permutation(i)
+        permutation.update(i, permutation(idealRow._1.toInt))
+        permutation.update(idealRow._1.toInt, tmp2)
+        /*  
+        updateVec = updateVec.map(t =>
+          if (t._1 == i)
+            (t._1, idealRow._2.apply(i))
+          else if (t._1 == idealRow._1)
+            (t._1, tmp)
+          else t)
+        *
+        * 
+        */
+      }
+
+      val vector = matr.rows.filter(t => t._1.toInt == i).map(t => t._2).first().toArray
+      val c = matr.rows.context.broadcast(vector.apply(i))
+
+      //  vector.foreach(t => (t/c.value))
+      for (i <- 0 until vector.length)
+        vector.update(i, vector(i) / c.value)
+      val broadRow = matr.rows.context.broadcast(vector)
+
+      val broadCol = matr.rows.context.broadcast(updateVec.map(t => t._2))
+
+      val result = matr.rows.mapPartitions(iter => {
+        iter.map { t =>
+          val vec = t._2.toArray
+          if (t._1.toInt == i) {
+            for (k <- 0 until vec.length)
+              if (k == i) {
+                vec.update(k, broadRow.value.apply(k) / c.value)
+              } else {
+                vec.update(k, broadRow.value.apply(k))
+              }
+          } else {
+            for (k <- 0 until vec.length if k != i) {
+              vec.update(k, vec(k) - broadCol.value.apply(t._1.toInt) * broadRow.value.apply(k))
+            }
+          }
+          if (t._1.toInt != i)
+            vec.update(i, vec(i) / (-c.value))
+          (t._1, Vectors.dense(vec))
+        }
+      }, true)
+      matr = new DenseVecMatrix(result, numRows(), numCols())
+      //cache the matrix to speed the computation
+      matr.rows.cache()
+      /*
       if (i % 2000 == 0)
         matr.rows.checkpoint()
         * */
-      }
     }
-    matr
+    var permuMatrix = new DenseVecMatrix(rows.map(t => {
+      val array = Array.fill[Double](numCols.toInt)(0)
+      array(permutation(t._1.toInt)) = 1;
+      (t._1, Vectors.dense(array))
+    }))
+   // println("\n\nthe result is:")
+    //matr.print()
+    matr.multiplyHama(permuMatrix, 2).toDenseVecMatrix()
   }
 
   /**
@@ -1036,11 +1136,12 @@ class DenseVecMatrix(
   def computeSVD(
     k: Int,
     computeU: Boolean = false,
-    rCond: Double = 1e-9): SingularValueDecomposition[DenseVecMatrix, DenseMatrix] = {
+    rCond: Double = 1e-9): (DenseVecMatrix, DenseVector, Matrix) = {
     // maximum number of Arnoldi update iterations for invoking ARPACK
     val maxIter = math.max(300, k * 3)
     // numerical tolerance for invoking ARPACK
     val tol = 1e-10
+
     computeSVD(k, computeU, rCond, maxIter, tol, "auto")
   }
 
@@ -1064,7 +1165,7 @@ class DenseVecMatrix(
     rCond: Double,
     maxIter: Int,
     tol: Double,
-    mode: String): SingularValueDecomposition[DenseVecMatrix, DenseMatrix] = {
+    mode: String): (DenseVecMatrix, DenseVector, Matrix) = {
     val n = numCols().toInt
     require(k > 0 && k <= n, s"Request up to n singular values but got k=$k and n=$n.")
     object SVDMode extends Enumeration {
@@ -1099,6 +1200,7 @@ class DenseVecMatrix(
       case SVDMode.LocalLAPACK =>
         val G = computeGramianMatrix().toBreeze.asInstanceOf[BDM[Double]]
         val (uFull: BDM[Double], sigmaSquaresFull: BDV[Double], v: BDM[Double]) = brzSvd(G)
+
         (sigmaSquaresFull, uFull)
       case SVDMode.DistARPACK =>
         if (rows.getStorageLevel == StorageLevel.NONE) {
@@ -1123,7 +1225,6 @@ class DenseVecMatrix(
       i += 1
     }
     val sk = i
-    println("sk is " + sk)
     if (sk < k) {
       logWarning(s"Requested $k singular values but only found $sk nonzeros.")
     }
@@ -1133,6 +1234,7 @@ class DenseVecMatrix(
         + " parent RDDs are also uncached.")
     }
     val s = Vectors.dense(Arrays.copyOfRange(sigmas.data, 0, sk))
+
     val V = Matrices.dense(n, sk, Arrays.copyOfRange(u.data, 0, n * sk)).asInstanceOf[DenseMatrix]
     if (computeU) {
       // N = Vk * Sk^{-1}
@@ -1149,9 +1251,9 @@ class DenseVecMatrix(
         j += 1
       }
       val U = this.multiply(Matrices.fromBreeze(N))
-      SingularValueDecomposition(U, s, V)
+      (U, s, V)
     } else {
-      SingularValueDecomposition(null, s, V)
+      (null, s, V)
     }
   }
 
