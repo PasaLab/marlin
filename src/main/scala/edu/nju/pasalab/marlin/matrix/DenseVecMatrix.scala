@@ -18,15 +18,10 @@ import org.apache.hadoop.mapred.TextOutputFormat
 
 import org.apache.spark.Logging
 import org.apache.spark.annotation.Experimental
-import org.apache.spark.util.random.XORShiftRandom
 import org.apache.spark.storage.StorageLevel
-import org.apache.spark.annotation.DeveloperApi
-import org.apache.spark.HashPartitioner
 
-import scala.util.control.Breaks._
 import edu.nju.pasalab.marlin.utils.MTUtils
 
-import scala.collection.mutable.ListBuffer
 import breeze.linalg.{
   DenseMatrix => BDM,
   DenseVector => BDV,
@@ -42,9 +37,7 @@ import com.github.fommil.netlib.ARPACK
 import org.netlib.util.{ intW, doubleW }
 
 import scala.language.implicitConversions
-import scala.reflect.ClassTag
 
-import org.apache.spark.util.Utils
 class DenseVecMatrix(
   private[marlin] val rows: RDD[(Long, DenseVector)],
   private var nRows: Long,
@@ -190,7 +183,6 @@ class DenseVecMatrix(
     require(numCols == otherRows, s"Dimension mismatch: ${numCols} vs ${otherRows}")
 
     resultCols = other.numCols()
-
     val thisBlocks = asInstanceOf[DenseVecMatrix].toBlockMatrix(blkNum, blkNum)
     val otherBlocks = other.asInstanceOf[DenseVecMatrix].toBlockMatrix(blkNum, blkNum)
     thisBlocks.multiply(otherBlocks, blkNum * blkNum * blkNum)
@@ -233,27 +225,35 @@ class DenseVecMatrix(
     thisCollects.multiplyBroadcast(otherCollects, parallelism, splits, mode)
   }
 
+  private[marlin] def rowExchange(permutation: Array[Int]): DenseVecMatrix = {
+    // val permPair = (0 until permutation.length).toArray.zip(permutation)
+    require(numRows == permutation.length,
+      s"Dimension mismatch, row permutation matrix: ${permutation.length} vs $nRows")
+    val permBro = rows.sparkContext.broadcast(permutation)
+    val result = rows.map { t => (permBro.value(t._1.toInt).toLong, t._2) }
+    new DenseVecMatrix(result, numRows(), numCols())
+  }
   /**
-   * This function still works in progress. it needs to do more work
+   * This is an experimental implementation of block LU decomposition. The method is still in progress.
    * LU decompose this DenseVecMatrix to generate a lower triangular matrix L
    * and a upper triangular matrix U
    *
-   * @return a pair (lower triangular matrix, upper triangular matrix)
+   * @return a pair (lower triangular matrix, upper triangular matrix, row permutation matrix)
    */
-  /*
-  def luDecomposeNew(mode: String = "auto"): (DenseVecMatrix, DenseVecMatrix, Array[Double]) = {
-    val iterations = numRows
-    require(iterations == numCols,
-      s"currently we only support square matrix: ${iterations} vs ${numCols}")
-    if (!rows.context.getCheckpointDir.isDefined) {
-      println("Waning, checkpointdir is not set! We suggest you set it before running luDecopose")
+  def blockLUDecompose(mode: String = "auto"): (DenseVecMatrix, DenseVecMatrix, Array[Int]) = {
+    def getFactor(n: Long, m: Long): Long = {
+      if (n % m == 0) m
+      else getFactor(n, m - 1)
     }
+
+    require(numRows == numCols,
+      s"currently we only support square matrix: ${numRows} vs ${numCols}")
 
     object LUmode extends Enumeration {
       val LocalBreeze, DistSpark = Value
     }
     val computeMode = mode match {
-      case "auto" => if (iterations > 3200L) {
+      case "auto" => if (numRows > 6000L) {
         LUmode.DistSpark
       } else {
         LUmode.LocalBreeze
@@ -263,38 +263,157 @@ class DenseVecMatrix(
       case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
     }
 
-    val (lower: DenseVecMatrix, upper: DenseVecMatrix, permutation) = computeMode match {
+    val (lower: DenseVecMatrix, upper: DenseVecMatrix, permutation: Array[Int]) = computeMode match {
       case LUmode.LocalBreeze =>
-        val temp = brzLU(toBreeze())
-        val l = breeze.linalg.lowerTriangular(temp._1)
+        val brz = toBreeze()
+        val lu = brzLU(brz)
+        /**
+         * val luBro = rows.sparkContext.broadcast(lu._1.t)
+         * val luMatrix = rows.mapPartitions(iter => {
+         * iter.map { t =>
+         * val array1 = luBro.value(::, t._1.toInt).toArray
+         * val array2 = array1.clone()
+         * array1(t._1.toInt) = 1.0
+         * for (i <- 0 until t._1.toInt) {
+         * array2(i) = 0.0
+         * }
+         * for (i <- t._1.toInt until numRows().toInt) {
+         * array1(i) = 0.0
+         * }
+         * (t._1, Vectors.dense(array1), Vectors.dense(array2)) }
+         * })
+         *
+         * val lDense = luMatrix.map(t => (t._1, t._2))
+         * val uDense = luMatrix.map(t => (t._1, t._3))
+         */
+
+        val l = breeze.linalg.lowerTriangular(lu._1).t
         for (i <- 0 until l.rows) {
           l.update(i, i, 1.0)
         }
-        val u = breeze.linalg.upperTriangular(temp._1)
-        (Matrices.fromBreeze(l), Matrices.fromBreeze(u), temp._2)
+
+        val u = breeze.linalg.upperTriangular(lu._1).t
+        val uBro = rows.sparkContext.broadcast(u)
+        val uDense = rows.mapPartitions(iter => {
+          iter.map(t =>
+            (t._1, Vectors.dense(uBro.value(::, t._1.toInt).toArray)))
+        })
+        //  uDense.cache()
+        val lBro = rows.sparkContext.broadcast(l)
+        val lDense = rows.mapPartitions(iter => {
+          iter.map(t =>
+            (t._1, Vectors.dense(lBro.value(::, t._1.toInt).toArray)))
+        })
+
+        val pArray = (0 until lu._2.length).toArray
+        for (i <- 0 until lu._2.length) {
+          val tmp = pArray(i)
+          pArray(i) = pArray(lu._2(i) - 1)
+          pArray(lu._2(i) - 1) = tmp
+        }
+        (new DenseVecMatrix(lDense, numRows, numRows), new DenseVecMatrix(uDense, numRows, numRows), pArray)
 
       case LUmode.DistSpark =>
+        //val numSubRows = getFactor(numRows, Math.sqrt(numRows).toLong).toInt
+        val numSubRows = 1000
+        val numSubRows2 = (numRows - numSubRows).toInt
 
-        val subNumRows = numRows / 2;
-        val subMatrixA1 = getSubMatrix(0, subNumRows, 0, subNumRows.toInt)
-        val subMatrixA2 = getSubMatrix(0, subNumRows, subNumRows.toInt + 1, numCols.toInt)
-        val subMatrixA3 = getSubMatrix(subNumRows.toInt + 1, numRows, 0, subNumRows.toInt)
-        val subMatrixA4 = getSubMatrix(subNumRows.toInt + 1, numRows, subNumRows.toInt + 1, numCols.toInt)
-        val (l1, u1, p1) = subMatrixA1.luDecomposeNew("auto")
+        val subMatrix11 = getSubMatrix(0, numSubRows - 1, 0, numSubRows.toInt - 1)
+        val subMatrix12 = getSubMatrix(0, numSubRows - 1, numSubRows.toInt, numCols.toInt - 1)
+        val subMatrix21 = getSubMatrix(numSubRows.toInt, numRows - 1, 0, numSubRows.toInt - 1)
+        val subMatrix22 = getSubMatrix(numSubRows.toInt, numRows - 1, numSubRows.toInt, numCols.toInt - 1)
 
-        val lresult = rows.mapPartitions(iter => {
+        val (lMatrix11, uMatrix11, pMatrix11) = subMatrix11.blockLUDecompose("auto")
+
+        val u = subMatrix21.rows.context.broadcast(uMatrix11.toBreeze())
+        val lMatrix21Rdd = subMatrix21.rows.mapPartitions(iter => {
           iter.map { t =>
-            if (t._1.toInt >= i) {
-              val vec = t._2.toArray
-              vec.update(i, broadLV.value.apply(t._1.toInt))
-              (t._1, Vectors.dense(vec))
-            } else t
+            val array = t._2.toArray.clone()
+            for (j <- 0 until array.length) {
+              for (k <- 0 until j) {
+                array(j) = array(j) - u.value.apply(k, j) * array(k)
+              }
+              array(j) = array(j) / u.value.apply(j, j)
+            }
+            (t._1, Vectors.dense(array))
           }
-        }, true)
-    }
+        })
+        var lMatrix21 = new DenseVecMatrix(lMatrix21Rdd, numSubRows2, numSubRows)
 
+        val tmp = subMatrix12.rowExchange(pMatrix11)
+          .transpose().toDenseVecMatrix()
+        val l = tmp.rows.context.broadcast(lMatrix11.toBreeze())
+        val uMatrix12Rdd = tmp
+          .rows.mapPartitions(iter => {
+            iter.map { t =>
+              val array = t._2.toArray.clone()
+              for (j <- 0 until numSubRows) {
+                for (k <- 0 until j) {
+                  array(j) = array(j) - l.value.apply(j, k) * array(k)
+                }
+                array(j) = array(j) / l.value.apply(j, j)
+              }
+              (t._1, Vectors.dense(array))
+            }
+          })
+        val uMatrix12 = new DenseVecMatrix(uMatrix12Rdd, numSubRows2, numSubRows).transpose().toDenseVecMatrix()
+
+        val sc = rows.context
+        val cores = if (!sc.getConf.getOption("spark.default.parallelism").isEmpty) {
+          sc.getConf.get("spark.default.parallelism").toInt
+        } else {
+          sc.defaultMinPartitions
+        }
+        val (lMatrix22, uMatrix22, pMatrix22) = subMatrix22
+          .subtract(lMatrix21.multiply(uMatrix12, cores)).blockLUDecompose("auto")
+
+        lMatrix21 = lMatrix21.rowExchange(pMatrix22)
+
+        val lUpper = lMatrix11.rows
+          .map(t => (t._1, Vectors.fromBreeze(BDV.vertcat(t._2.toBreeze.asInstanceOf[BDV[Double]], BDV.zeros[Double](numSubRows2)))))
+        val lLower = lMatrix21.rows
+          .join(lMatrix22.rows)
+          .map { t =>
+            val array1 = t._2._1.toArray
+            val array2 = t._2._2.toArray
+            (t._1 + numSubRows, Vectors.dense(array1 ++ array2))
+          }
+        val LMatrix = new DenseVecMatrix(lUpper.union(lLower), numRows(), numRows())
+
+        val UUpper = uMatrix11.rows
+          .join(uMatrix12.rows)
+          .map { t =>
+            val array1 = t._2._1.toArray
+            val array2 = t._2._2.toArray
+            (t._1, Vectors.dense(array1 ++ array2))
+          }
+        val ULower = uMatrix22.rows
+          .map(t => (t._1 + numSubRows, Vectors.fromBreeze(BDV.vertcat(BDV.zeros[Double](numSubRows), t._2.toBreeze.asInstanceOf[BDV[Double]]))))
+
+        val UMatrix = new DenseVecMatrix(UUpper.union(ULower), numRows(), numRows())
+
+        val PMatrix = pMatrix11 ++ (pMatrix22.map { _ + numSubRows })
+
+        /**
+         * println("Recursive:" + numSubRows)
+         * println("lMatrix11, row:" + lMatrix11.numRows() + ", column:" + lMatrix11.numCols())
+         * println("lMatrix21, row:" + lMatrix21.numRows() + ", column:" + lMatrix21.numCols())
+         * println("lMatrix22, row:" + lMatrix22.numRows() + ", column:" + lMatrix22.numCols())
+         * println("uMatrix11, row:" + uMatrix11.numRows() + ", column:" + uMatrix11.numCols())
+         * println("uMatrix12, row:" + uMatrix12.numRows() + ", column:" + uMatrix12.numCols())
+         * println("uMatrix22, row:" + uMatrix22.numRows() + ", column:" + uMatrix22.numCols())
+         * println("pMatrix11, row:" + pMatrix11.numRows() + ", column:" + pMatrix11.numCols())
+         * println("pMatrix22, row:" + pMatrix22.numRows() + ", column:" + pMatrix22.numCols())
+         * println("lMatrix, row:" + LMatrix.numRows() + ", column:" + LMatrix.numCols())
+         * println("uMatrix, row:" + UMatrix.numRows() + ", column:" + UMatrix.numCols())
+         * println("pMatrix, row:" + PMatrix.numRows() + ", column:" + PMatrix.numCols())
+         * println("")
+         */
+        (LMatrix, UMatrix, PMatrix)
+    }
+    (lower, upper, permutation)
   }
-*/
+
   /**
    * This function still works in progress. it needs to do more work
    * LU decompose this DenseVecMatrix to generate a lower triangular matrix L
@@ -411,7 +530,7 @@ class DenseVecMatrix(
   }
 
   /**
-   * This function still works in progress.
+   * This function is still in progress.
    * get the result of cholesky decomposition of this DenseVecMatrix
    *
    * @return matrix A, where A * A' = Matrix
@@ -489,13 +608,16 @@ class DenseVecMatrix(
    * This function still works in progress.
    * get the inverse of this DenseVecMatrix
    *
-   * @return the inverse of the square matrix, zero matrix if the DenseVecMatrix is singular
+   * @return the inverse of the square matrix
    */
   def inverse(mode: String = "auto"): DenseVecMatrix = {
     val iterations = numRows()
     require(iterations == numCols(),
       s"currently we only support square matrix: ${iterations} vs ${numCols}")
-
+    if (!rows.context.getCheckpointDir.isDefined) {
+      println("Waning, checkpointdir is not set! We suggest you set it before running luDecopose")
+    }
+    /**copy construct a DenseVecMatrix to maintain the original matrix **/
     var matr = new DenseVecMatrix(rows.map(t => {
       val array = Array.ofDim[Double](numCols().toInt)
       val v = t._2.toArray
@@ -508,10 +630,10 @@ class DenseVecMatrix(
     val num = iterations.toInt
     val permutation = Array.range(0, num)
 
-
     for (i <- 0 until num) {
 
-      var updateVec = matr.rows.map(t => (t._1, t._2.toArray.apply(i))).collect()
+      val updateVec = matr.rows.map(t => (t._1, t._2.toArray.apply(i))).collect()
+
       val ideal = updateVec.filter(_._1.toInt >= i).maxBy(t => t._2.abs)
 
       if (math.abs(ideal._2) < 1.0e-20) {
@@ -536,7 +658,7 @@ class DenseVecMatrix(
         val tmp2 = permutation(i)
         permutation.update(i, permutation(idealRow._1.toInt))
         permutation.update(idealRow._1.toInt, tmp2)
-        /*  
+        /*
         updateVec = updateVec.map(t =>
           if (t._1 == i)
             (t._1, idealRow._2.apply(i))
@@ -544,11 +666,11 @@ class DenseVecMatrix(
             (t._1, tmp)
           else t)
         *
-        * 
+        *
         */
       }
 
-      val vector = matr.rows.filter(t => t._1.toInt == i).map(t => t._2).first().toArray
+      val vector = matr.rows.filter(_._1.toInt == i).map(t => t._2).collect().apply(0).toArray.clone
       val c = matr.rows.context.broadcast(vector.apply(i))
 
       //  vector.foreach(t => (t/c.value))
@@ -560,7 +682,7 @@ class DenseVecMatrix(
 
       val result = matr.rows.mapPartitions(iter => {
         iter.map { t =>
-          val vec = t._2.toArray
+          val vec = t._2.toArray.clone()
           if (t._1.toInt == i) {
             for (k <- 0 until vec.length)
               if (k == i) {
@@ -580,19 +702,23 @@ class DenseVecMatrix(
       }, true)
       matr = new DenseVecMatrix(result, numRows(), numCols())
       //cache the matrix to speed the computation
-      matr.rows.cache()
-      /*
-      if (i % 2000 == 0)
-        matr.rows.checkpoint()
-        * */
+      //matr.rows.cache()
+      if (i % 50 == 0) {
+        println("process has finish: " + i)
+        println(Calendar.getInstance().getTime)
+      }
+      if (i % 2000 == 0) {
+        if (matr.rows.context.getCheckpointDir.isDefined)
+          matr.rows.checkpoint()
+      }
     }
-    var permuMatrix = new DenseVecMatrix(rows.map(t => {
+    
+    val permuMatrix = new DenseVecMatrix(rows.map(t => {
       val array = Array.fill[Double](numCols.toInt)(0)
       array(permutation(t._1.toInt)) = 1;
       (t._1, Vectors.dense(array))
     }))
-   // println("\n\nthe result is:")
-    //matr.print()
+
     matr.multiplyHama(permuMatrix, 2).toDenseVecMatrix()
   }
 
@@ -631,8 +757,8 @@ class DenseVecMatrix(
   final def subtract(other: DistributedMatrix): DenseVecMatrix = {
     other match {
       case that: DenseVecMatrix => {
-        require(numRows() == that.numRows(), s"Dimension mismatch: ${numRows()} vs ${other.numRows()}")
-        require(numCols == that.numCols, s"Dimension mismatch: ${numCols()} vs ${other.numCols()}")
+        require(numRows() == that.numRows(), s"Row dimension mismatch: ${numRows()} vs ${other.numRows()}")
+        require(numCols == that.numCols, s"Column dimension mismatch: ${numCols()} vs ${other.numCols()}")
 
         val result = rows.join(that.rows).mapPartitions(iter => {
           iter.map(t =>
@@ -864,8 +990,8 @@ class DenseVecMatrix(
    * @param numByRow num of subMatrix along the row side set by user,
    *                 the actual num of subMatrix along the row side is `blksByRow`
    * @param numByCol num of subMatrix along the column side set by user,
-   *                 the actual num of subMatrix along the row side is `blksByCol`
-   * @return the transformated matrix in BlockMatrix type
+   *                 the actual num of subMatrix along the col side is `blksByCol`
+   * @return the transformed matrix in BlockMatrix type
    */
 
   def toBlockMatrix(numByRow: Int, numByCol: Int): BlockMatrix = {
@@ -876,6 +1002,7 @@ class DenseVecMatrix(
     val mBlockColSize = math.ceil(mColumns.toDouble / numByCol.toDouble).toInt
     val blksByRow = math.ceil(mRows.toDouble / mBlockRowSize).toInt
     val blksByCol = math.ceil(mColumns.toDouble / mBlockColSize).toInt
+
     if (blksByCol == 1) {
       val result = rows.mapPartitions(iter => {
         iter.map(t => {
@@ -1033,11 +1160,6 @@ class DenseVecMatrix(
     }
     toBlockMatrix(math.min(blkByRow, numRows().toInt / 2), 1).transpose()
   }
-  /**
-   * ***********************************************************
-   * add SVD
-   *
-   */
 
   /**
    * Multiplies the Gramian matrix `A^T A` by a dense vector on the right without computing `A^T A`.
@@ -1055,18 +1177,26 @@ class DenseVecMatrix(
         rBrz match {
           // use specialized axpy for better performance
           case _: BDV[_] => brzAxpy(a, rBrz.asInstanceOf[BDV[Double]], U)
-          case _: BSV[_] => brzAxpy(a, rBrz.asInstanceOf[BSV[Double]], U)
           case _ => throw new UnsupportedOperationException(
             s"Do not support vector operation from type ${rBrz.getClass.getName}.")
         }
         U
       }, combOp = (U1, U2) => U1 += U2)
   }
+
   /**
    * Computes the Gramian matrix `A^T A`.
    */
-
-  def computeGramianMatrix(): Matrix = {
+  private[marlin] def computeGramianMatrix(): Matrix = {
+    def checkNumColumns(cols: Int): Unit = {
+      if (cols > 65535) {
+        throw new IllegalArgumentException(s"Argument with more than 65535 cols: $cols")
+      }
+      if (cols > 10000) {
+        val mem = cols * cols * 8
+        logWarning(s"$cols columns will require at least $mem bytes of memory!")
+      }
+    }
     val n = numCols().toInt
     checkNumColumns(n)
     // Computes n*(n+1)/2, avoiding overflow in the multiplication.
@@ -1081,15 +1211,6 @@ class DenseVecMatrix(
     DenseVecMatrix.triuToFull(n, GU.data)
   }
 
-  private def checkNumColumns(cols: Int): Unit = {
-    if (cols > 65535) {
-      throw new IllegalArgumentException(s"Argument with more than 65535 cols: $cols")
-    }
-    if (cols > 10000) {
-      val mem = cols * cols * 8
-      logWarning(s"$cols columns will require at least $mem bytes of memory!")
-    }
-  }
   /**
    * Computes singular value decomposition of this matrix. Denote this matrix by A (m x n). This
    * will compute matrices U, S, V such that A ~= U * S * V', where S contains the leading k
@@ -1200,7 +1321,6 @@ class DenseVecMatrix(
       case SVDMode.LocalLAPACK =>
         val G = computeGramianMatrix().toBreeze.asInstanceOf[BDM[Double]]
         val (uFull: BDM[Double], sigmaSquaresFull: BDV[Double], v: BDM[Double]) = brzSvd(G)
-
         (sigmaSquaresFull, uFull)
       case SVDMode.DistARPACK =>
         if (rows.getStorageLevel == StorageLevel.NONE) {
@@ -1455,6 +1575,7 @@ private[marlin] object EigenValueDecomposition {
   }
 }
 
-@Experimental
-case class SingularValueDecomposition[UType, VType](U: UType, s: Vector, V: VType)
+
+
+
 

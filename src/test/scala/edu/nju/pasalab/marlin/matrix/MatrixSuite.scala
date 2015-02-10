@@ -279,15 +279,15 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
       */
 
     val row = Seq(
-      (0L, Vectors.dense(0.0, 1.0, 4.0)),
-      (1L, Vectors.dense(1.0, 2.0, 3.0)),
-      (2L, Vectors.dense(5.0, 6.0, 0.0))).map(t => (t._1, t._2))
+      (0L, Vectors.dense(0.0, 0.0, 1.0)),
+      (1L, Vectors.dense(0.0, 1.0, 0.0)),
+      (2L, Vectors.dense(1.0, 0.0, 0.0))).map(t => (t._1, t._2))
     val mat = new DenseVecMatrix(sc.parallelize(row, 2))
     val inverse = mat.inverse()
     val identity = BDM(
-      (18.0, -24.0, 5.0),
-      (-15.0, 20.0, -4.0),
-      (4.0, -5.0, 1.0))
+      (0.0, 0.0, 1.0),
+      (0.0, 1.0, 0.0),
+      (1.0, 0.0, 0.0))
     assert(inverse.toBreeze() === identity)
   }
 
