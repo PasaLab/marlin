@@ -400,7 +400,7 @@ class BlockMatrix(
       })
     }else {
       val subBlocks = blocks.collect()
-      val blocksArray = Array.ofDim[BDM[Double]](blksByRow, blksByRow)
+      val blocksArray = Array.ofDim[BDM[Double]](blksByRow, blksByCol)
       for (s <- subBlocks) {
         blocksArray(s._1.row)(s._1.column) = s._2
       }

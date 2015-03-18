@@ -9,15 +9,13 @@ import org.apache.hadoop.fs.{ FileSystem, Path }
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.parallel.mutable.ParArray
 
+import org.apache.hadoop.io.{ Text, NullWritable }
+import org.apache.hadoop.mapred.TextOutputFormat
 import org.apache.log4j.{ Logger, Level }
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 import org.apache.spark.rdd.RDD
-import org.apache.hadoop.io.{ Text, NullWritable }
-import org.apache.hadoop.mapred.TextOutputFormat
-
 import org.apache.spark.Logging
-import org.apache.spark.annotation.Experimental
 import org.apache.spark.storage.StorageLevel
 
 import edu.nju.pasalab.marlin.utils.MTUtils
@@ -25,10 +23,11 @@ import edu.nju.pasalab.marlin.utils.MTUtils
 import breeze.linalg.{
   DenseMatrix => BDM,
   DenseVector => BDV,
-  SparseVector => BSV,
   axpy => brzAxpy,
   svd => brzSvd,
-  LU => brzLU
+  LU => brzLU,
+  inv => brzInv,
+  cholesky => brzCholesky
 }
 import breeze.numerics.{ sqrt => brzSqrt }
 import com.github.fommil.netlib.BLAS.{ getInstance => blas }
@@ -83,6 +82,16 @@ class DenseVecMatrix(
     mat
   }
 
+  /** Get the numbers of cores across the cluster */
+  private[marlin] def getClusterCores(): Int = {
+    val sc = rows.context
+    val cores = if (!sc.getConf.getOption("spark.default.parallelism").isEmpty) {
+      sc.getConf.get("spark.default.parallelism").toInt
+    } else {
+      sc.defaultMinPartitions
+    }
+    cores
+  }
   /**
    * This function is used to satisfy the
    * @param other
@@ -225,27 +234,35 @@ class DenseVecMatrix(
     thisCollects.multiplyBroadcast(otherCollects, parallelism, splits, mode)
   }
 
+  /**
+   * multiply a elementary matrix on the left to apply row switching transformations
+   *
+   * @param permutation the elementary row switching matrix
+   * @return the multiplication
+   */
   private[marlin] def rowExchange(permutation: Array[Int]): DenseVecMatrix = {
     // val permPair = (0 until permutation.length).toArray.zip(permutation)
     require(numRows == permutation.length,
       s"Dimension mismatch, row permutation matrix: ${permutation.length} vs $nRows")
-    val permBro = rows.sparkContext.broadcast(permutation)
-    val result = rows.map { t => (permBro.value(t._1.toInt).toLong, t._2) }
+    val index = rows.context.parallelize(permutation.zipWithIndex.toSeq, getClusterCores())
+      .map(t => (t._1.toLong, t._2.toLong))
+    val result = rows.join(index).map(t => (t._2._2, t._2._1))
     new DenseVecMatrix(result, numRows(), numCols())
   }
+
   /**
    * This is an experimental implementation of block LU decomposition. The method is still in progress.
    * LU decompose this DenseVecMatrix to generate a lower triangular matrix L
-   * and a upper triangular matrix U
+   * and a upper triangular matrix U and a permutation matrix. i.e. LU = PA
    *
-   * @return a pair (lower triangular matrix, upper triangular matrix, row permutation matrix)
+   * @param mode whether to calculate in a local or a distributed manner
+   * @return a triple(lower triangular matrix, upper triangular matrix, row permutation array)
    */
   def blockLUDecompose(mode: String = "auto"): (DenseVecMatrix, DenseVecMatrix, Array[Int]) = {
     def getFactor(n: Long, m: Long): Long = {
       if (n % m == 0) m
       else getFactor(n, m - 1)
     }
-
     require(numRows == numCols,
       s"currently we only support square matrix: ${numRows} vs ${numCols}")
 
@@ -262,49 +279,25 @@ class DenseVecMatrix(
       case "dist" => LUmode.DistSpark
       case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
     }
-
     val (lower: DenseVecMatrix, upper: DenseVecMatrix, permutation: Array[Int]) = computeMode match {
-      case LUmode.LocalBreeze =>
+      case LUmode.LocalBreeze => {
         val brz = toBreeze()
         val lu = brzLU(brz)
-        /**
-         * val luBro = rows.sparkContext.broadcast(lu._1.t)
-         * val luMatrix = rows.mapPartitions(iter => {
-         * iter.map { t =>
-         * val array1 = luBro.value(::, t._1.toInt).toArray
-         * val array2 = array1.clone()
-         * array1(t._1.toInt) = 1.0
-         * for (i <- 0 until t._1.toInt) {
-         * array2(i) = 0.0
-         * }
-         * for (i <- t._1.toInt until numRows().toInt) {
-         * array1(i) = 0.0
-         * }
-         * (t._1, Vectors.dense(array1), Vectors.dense(array2)) }
-         * })
-         *
-         * val lDense = luMatrix.map(t => (t._1, t._2))
-         * val uDense = luMatrix.map(t => (t._1, t._3))
-         */
-
         val l = breeze.linalg.lowerTriangular(lu._1).t
         for (i <- 0 until l.rows) {
           l.update(i, i, 1.0)
         }
-
         val u = breeze.linalg.upperTriangular(lu._1).t
         val uBro = rows.sparkContext.broadcast(u)
         val uDense = rows.mapPartitions(iter => {
           iter.map(t =>
             (t._1, Vectors.dense(uBro.value(::, t._1.toInt).toArray)))
         })
-        //  uDense.cache()
         val lBro = rows.sparkContext.broadcast(l)
         val lDense = rows.mapPartitions(iter => {
           iter.map(t =>
             (t._1, Vectors.dense(lBro.value(::, t._1.toInt).toArray)))
         })
-
         val pArray = (0 until lu._2.length).toArray
         for (i <- 0 until lu._2.length) {
           val tmp = pArray(i)
@@ -312,8 +305,9 @@ class DenseVecMatrix(
           pArray(lu._2(i) - 1) = tmp
         }
         (new DenseVecMatrix(lDense, numRows, numRows), new DenseVecMatrix(uDense, numRows, numRows), pArray)
+      }
 
-      case LUmode.DistSpark =>
+      case LUmode.DistSpark => {
         //val numSubRows = getFactor(numRows, Math.sqrt(numRows).toLong).toInt
         val numSubRows = 1000
         val numSubRows2 = (numRows - numSubRows).toInt
@@ -322,7 +316,6 @@ class DenseVecMatrix(
         val subMatrix12 = getSubMatrix(0, numSubRows - 1, numSubRows.toInt, numCols.toInt - 1)
         val subMatrix21 = getSubMatrix(numSubRows.toInt, numRows - 1, 0, numSubRows.toInt - 1)
         val subMatrix22 = getSubMatrix(numSubRows.toInt, numRows - 1, numSubRows.toInt, numCols.toInt - 1)
-
         val (lMatrix11, uMatrix11, pMatrix11) = subMatrix11.blockLUDecompose("auto")
 
         val u = subMatrix21.rows.context.broadcast(uMatrix11.toBreeze())
@@ -345,17 +338,17 @@ class DenseVecMatrix(
         val l = tmp.rows.context.broadcast(lMatrix11.toBreeze())
         val uMatrix12Rdd = tmp
           .rows.mapPartitions(iter => {
-            iter.map { t =>
-              val array = t._2.toArray.clone()
-              for (j <- 0 until numSubRows) {
-                for (k <- 0 until j) {
-                  array(j) = array(j) - l.value.apply(j, k) * array(k)
-                }
-                array(j) = array(j) / l.value.apply(j, j)
+          iter.map { t =>
+            val array = t._2.toArray.clone()
+            for (j <- 0 until numSubRows) {
+              for (k <- 0 until j) {
+                array(j) = array(j) - l.value.apply(j, k) * array(k)
               }
-              (t._1, Vectors.dense(array))
+              array(j) = array(j) / l.value.apply(j, j)
             }
-          })
+            (t._1, Vectors.dense(array))
+          }
+        })
         val uMatrix12 = new DenseVecMatrix(uMatrix12Rdd, numSubRows2, numSubRows).transpose().toDenseVecMatrix()
 
         val sc = rows.context
@@ -374,44 +367,33 @@ class DenseVecMatrix(
         val lLower = lMatrix21.rows
           .join(lMatrix22.rows)
           .map { t =>
-            val array1 = t._2._1.toArray
-            val array2 = t._2._2.toArray
-            (t._1 + numSubRows, Vectors.dense(array1 ++ array2))
-          }
+          val array1 = t._2._1.toArray
+          val array2 = t._2._2.toArray
+          (t._1 + numSubRows, Vectors.dense(array1 ++ array2))
+        }
         val LMatrix = new DenseVecMatrix(lUpper.union(lLower), numRows(), numRows())
 
         val UUpper = uMatrix11.rows
           .join(uMatrix12.rows)
           .map { t =>
-            val array1 = t._2._1.toArray
-            val array2 = t._2._2.toArray
-            (t._1, Vectors.dense(array1 ++ array2))
-          }
+          val array1 = t._2._1.toArray
+          val array2 = t._2._2.toArray
+          (t._1, Vectors.dense(array1 ++ array2))
+        }
         val ULower = uMatrix22.rows
           .map(t => (t._1 + numSubRows, Vectors.fromBreeze(BDV.vertcat(BDV.zeros[Double](numSubRows), t._2.toBreeze.asInstanceOf[BDV[Double]]))))
 
         val UMatrix = new DenseVecMatrix(UUpper.union(ULower), numRows(), numRows())
 
-        val PMatrix = pMatrix11 ++ (pMatrix22.map { _ + numSubRows })
+        val PMatrix = pMatrix11 ++ (pMatrix22.map {
+          _ + numSubRows
+        })
 
-        /**
-         * println("Recursive:" + numSubRows)
-         * println("lMatrix11, row:" + lMatrix11.numRows() + ", column:" + lMatrix11.numCols())
-         * println("lMatrix21, row:" + lMatrix21.numRows() + ", column:" + lMatrix21.numCols())
-         * println("lMatrix22, row:" + lMatrix22.numRows() + ", column:" + lMatrix22.numCols())
-         * println("uMatrix11, row:" + uMatrix11.numRows() + ", column:" + uMatrix11.numCols())
-         * println("uMatrix12, row:" + uMatrix12.numRows() + ", column:" + uMatrix12.numCols())
-         * println("uMatrix22, row:" + uMatrix22.numRows() + ", column:" + uMatrix22.numCols())
-         * println("pMatrix11, row:" + pMatrix11.numRows() + ", column:" + pMatrix11.numCols())
-         * println("pMatrix22, row:" + pMatrix22.numRows() + ", column:" + pMatrix22.numCols())
-         * println("lMatrix, row:" + LMatrix.numRows() + ", column:" + LMatrix.numCols())
-         * println("uMatrix, row:" + UMatrix.numRows() + ", column:" + UMatrix.numCols())
-         * println("pMatrix, row:" + PMatrix.numRows() + ", column:" + PMatrix.numCols())
-         * println("")
-         */
         (LMatrix, UMatrix, PMatrix)
+      }
     }
     (lower, upper, permutation)
+
   }
 
   /**
@@ -530,6 +512,111 @@ class DenseVecMatrix(
   }
 
   /**
+   * This is an experimental implementation of block cholesky decomposition. The method is still in progress.
+   * Cholesky decompose this DenseVecMatrix to generate a lower triangular matrix L
+   * where A = L * L.transpose
+   *
+   * @param mode in which manner the computation should take place, local or distributed
+   * @return denseVecMatrix L where A = L * L.transpose
+   */
+  def blockCholeskyDecompose(mode: String = "auto"): (DenseVecMatrix) = {
+    def getFactor(n: Long, m: Long): Long = {
+      if (n % m == 0) m
+      else getFactor(n, m - 1)
+    }
+
+    require(numRows == numCols,
+      s"currently we only support square matrix: ${numRows} vs ${numCols}")
+
+    object CholeskyMode extends Enumeration {
+      val LocalBreeze, DistSpark = Value
+    }
+    val computeMode = mode match {
+      case "auto" => if (numRows > 6000L) {
+        CholeskyMode.DistSpark
+      } else {
+        CholeskyMode.LocalBreeze
+      }
+      case "breeze" => CholeskyMode.LocalBreeze
+      case "dist" => CholeskyMode.DistSpark
+      case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
+    }
+
+    val lower: DenseVecMatrix = computeMode match {
+      case CholeskyMode.LocalBreeze => {
+        printf("in local mode, appear at most once")
+        val brz = toBreeze()
+        val l = brzCholesky(brz).t
+        val lBro = rows.sparkContext.broadcast(l)
+        val lDense = rows.mapPartitions(iter => {
+          iter.map(t =>
+            (t._1, Vectors.dense(lBro.value(::, t._1.toInt).toArray)))
+        })
+        new DenseVecMatrix(lDense, numRows, numRows)
+      }
+
+
+      case CholeskyMode.DistSpark => {
+        //val numSubRows = getFactor(numRows, Math.sqrt(numRows).toLong).toInt
+        val numSubRows = 1000
+        val numSubRows2 = (numRows - numSubRows).toInt
+
+        val subMatrix11 = getSubMatrix(0, numSubRows - 1, 0, numSubRows.toInt - 1)
+        val subMatrix21 = getSubMatrix(numSubRows.toInt, numRows - 1, 0, numSubRows.toInt - 1)
+        val subMatrix22 = getSubMatrix(numSubRows.toInt, numRows - 1, numSubRows.toInt, numCols.toInt - 1)
+
+
+        val brzlMatrix11 = brzCholesky(subMatrix11.toBreeze()).t
+        val lTranspose = subMatrix21.rows.context.broadcast(brzlMatrix11)
+        val lMatrix21Rdd = subMatrix21
+          .rows.mapPartitions(iter => {
+          iter.map { t =>
+            val array = t._2.toArray.clone()
+            for (j <- 0 until numSubRows) {
+              for (k <- 0 until j) {
+                array(j) = array(j) - lTranspose.value.apply(j, k) * array(k)
+              }
+              array(j) = array(j) / lTranspose.value.apply(j, j)
+            }
+            (t._1, Vectors.dense(array))
+          }
+        })
+        val lMatrix21 = new DenseVecMatrix(lMatrix21Rdd, numSubRows2, numSubRows)
+
+        val lDense = subMatrix11.rows.mapPartitions(iter => {
+          iter.map(t =>
+            (t._1, Vectors.dense(lTranspose.value(::, t._1.toInt).toArray)))
+        })
+        val lMatrix11 = new DenseVecMatrix(lDense, numRows, numRows)
+
+        val sc = rows.context
+        val cores = if (!sc.getConf.getOption("spark.default.parallelism").isEmpty) {
+          sc.getConf.get("spark.default.parallelism").toInt
+        } else {
+          sc.defaultMinPartitions
+        }
+
+        val lMatrix22 = subMatrix22
+          .subtract(lMatrix21.multiply(lMatrix21.transpose(), cores)).blockCholeskyDecompose("auto")
+
+        val lUpper = lMatrix11.rows
+          .map(t => (t._1, Vectors.fromBreeze(BDV.vertcat(t._2.toBreeze.asInstanceOf[BDV[Double]], BDV.zeros[Double](numSubRows2)))))
+
+        val lLower = lMatrix21.rows
+          .join(lMatrix22.rows)
+          .map { t =>
+          val array1 = t._2._1.toArray
+          val array2 = t._2._2.toArray
+          (t._1 + numSubRows, Vectors.dense(array1 ++ array2))
+        }
+        val LMatrix = new DenseVecMatrix(lUpper.union(lLower), numRows(), numRows())
+        LMatrix
+      }
+    }
+    lower
+  }
+
+  /**
    * This function is still in progress.
    * get the result of cholesky decomposition of this DenseVecMatrix
    *
@@ -602,6 +689,36 @@ class DenseVecMatrix(
 
   def inverse(): DenseVecMatrix = {
     inverse("auto")
+  }
+
+  /**
+   * get the inverse of this DenseVecMatrix
+   *
+   * @return the inverse matrix
+   */
+  def blockInverse(): DenseVecMatrix = {
+    val (l, u, p) = blockLUDecompose("auto")
+    val lInverse = l.inverseTriangular("auto", "lower")
+    val uInverse = u.inverseTriangular("auto", "upper")
+    val sc = rows.context
+
+    val cores = if (!sc.getConf.getOption("spark.default.parallelism").isEmpty) {
+      sc.getConf.get("spark.default.parallelism").toInt
+    } else {
+      sc.defaultMinPartitions
+    }
+    val tmp = uInverse.multiply(lInverse, cores).toDenseVecMatrix()
+    val bp = tmp.rows.context.broadcast(p)
+    val pivotRdd = tmp.rows.mapPartitions (iter => {
+      iter.map{ t =>
+        val array = Array.ofDim[Double](numRows().toInt)
+        array(bp.value(t._1.toInt)) = 1
+        (t._1, Vectors.dense(array))
+      }
+    })
+    val pivot = new DenseVecMatrix(pivotRdd, numRows(), numCols())
+    val result = tmp.multiply(pivot, cores).toDenseVecMatrix()
+    result
   }
 
   /**
@@ -720,6 +837,127 @@ class DenseVecMatrix(
     }))
 
     matr.multiplyHama(permuMatrix, 2).toDenseVecMatrix()
+  }
+
+  /**
+   * get the inverse of the triangular matrix
+   * @param mode  in which manner should the inverse be calculated, locally or distributed
+   * @param form  the type of the triangular matrix, "lower" as lower triangular, "upper" as upper triangular
+   * @return
+   */
+  private[marlin] def inverseTriangular(mode: String = "auto", form: String): DenseVecMatrix = {
+    def getFactor(n: Long, m: Long): Long = {
+      if (n % m == 0) m
+      else getFactor(n, m - 1)
+    }
+    require(numRows == numCols,
+      s"currently we only support square matrix: ${numRows} vs ${numCols}")
+
+    object LUmode extends Enumeration {
+      val LocalBreeze, DistSpark = Value
+    }
+    val computeMode = mode match {
+      case "auto" => if (numRows > 6000L) {
+        LUmode.DistSpark
+      } else {
+        LUmode.LocalBreeze
+      }
+      case "breeze" => LUmode.LocalBreeze
+      case "dist" => LUmode.DistSpark
+      case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
+    }
+
+    val inverse: DenseVecMatrix = computeMode match {
+      case LUmode.LocalBreeze => {
+        val brz = toBreeze()
+        val inv = brzInv(brz).t
+        val invBro = rows.sparkContext.broadcast(inv)
+        val invRdd = rows.mapPartitions(iter => {
+          iter.map(t =>
+            (t._1, Vectors.dense(invBro.value(::, t._1.toInt).toArray)))
+        })
+        (new DenseVecMatrix(invRdd, numRows, numRows))
+      }
+      case LUmode.DistSpark => {
+        //val numSubRows = getFactor(numRows, Math.sqrt(numRows).toLong).toInt
+        val numSubRows2 = 1000
+        val numSubRows = (numRows - numSubRows2).toInt
+
+        val subMatrix11 = getSubMatrix(0, numSubRows - 1, 0, numSubRows.toInt - 1)
+        val subMatrix = if (form == "lower") {
+          getSubMatrix(numSubRows.toInt, numRows - 1, 0, numSubRows.toInt - 1)
+        }
+        else {
+          getSubMatrix(0, numSubRows - 1, numSubRows.toInt, numCols.toInt - 1)
+        }
+        val subMatrix22 = getSubMatrix(numSubRows.toInt, numRows - 1, numSubRows.toInt, numCols.toInt - 1)
+
+        val sc = rows.context
+        val cores = if (!sc.getConf.getOption("spark.default.parallelism").isEmpty) {
+          sc.getConf.get("spark.default.parallelism").toInt
+        } else {
+          sc.defaultMinPartitions
+        }
+
+        val invMatrix11 = subMatrix11.inverseTriangular("auto", form)
+
+        val brzInvMatrix22 = rows.sparkContext.broadcast(brzInv(subMatrix22.toBreeze()).t)
+
+        val inv22Rdd = subMatrix22.rows.mapPartitions(iter => {
+          iter.map(t =>
+            (t._1, Vectors.dense(brzInvMatrix22.value(::, t._1.toInt).toArray)))
+        })
+        val invMatrix22 = (new DenseVecMatrix(inv22Rdd, numSubRows2, numSubRows2))
+        /**
+        val blkInvMatrix22 = new BlockMatrix(
+          rows.context.parallelize(Array[(BlockID, BDM[Double])]((new BlockID(0, 0), brzInvMatrix22.value.t))),
+          numSubRows2,
+          numSubRows2,
+          1,
+          1)
+
+
+        val tmp = subMatrix21.multiply(invMatrix11, cores).subtractBy(0)
+        val parallelism = math.min(8 * cores, tmp.numRows() / 2).toInt
+
+//        val invMatrix21 = blkInvMatrix22
+ //         .multiplyBroadcast(tmp, parallelism, (1, 1, parallelism), "broadcastA" ).toDenseVecMatrix()
+          */
+
+        val invMatrix = if (form == "lower") {
+          invMatrix22.multiply(subMatrix.multiply(invMatrix11, cores).subtractBy(0), cores).toDenseVecMatrix()
+        }else {
+          invMatrix11.multiply(subMatrix.multiply(invMatrix22, cores).subtractBy(0), cores).toDenseVecMatrix()
+        }
+
+        val rst = if (form == "lower") {
+          val u = invMatrix11.rows
+            .map(t => (t._1, Vectors.fromBreeze(BDV.vertcat(t._2.toBreeze.asInstanceOf[BDV[Double]], BDV.zeros[Double](numSubRows2)))))
+          val l = invMatrix.rows
+            .join(invMatrix22.rows)
+            .map { t =>
+            val array1 = t._2._1.toArray
+            val array2 = t._2._2.toArray
+            (t._1 + numSubRows, Vectors.dense(array1 ++ array2))
+          }
+          (u, l)
+        }else {
+          val u = invMatrix11.rows
+            .join(invMatrix.rows)
+            .map { t =>
+            val array1 = t._2._1.toArray
+            val array2 = t._2._2.toArray
+            (t._1, Vectors.dense(array1 ++ array2))
+          }
+          val l = invMatrix22.rows
+            .map(t => (t._1 + numSubRows, Vectors.fromBreeze(BDV.vertcat(BDV.zeros[Double](numSubRows), t._2.toBreeze.asInstanceOf[BDV[Double]]))))
+          (u, l)
+        }
+        val mat = new DenseVecMatrix(rst._1.union(rst._2), numRows(), numRows())
+        mat
+      }
+    }
+    inverse
   }
 
   /**
