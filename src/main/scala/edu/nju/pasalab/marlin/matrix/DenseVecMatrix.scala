@@ -1320,8 +1320,8 @@ class DenseVecMatrix(
         EigenValueDecomposition.symmetricEigs(v => G * v, n, k, tol, maxIter)
       case SVDMode.LocalLAPACK =>
         val G = computeGramianMatrix().toBreeze.asInstanceOf[BDM[Double]]
-        val (uFull: BDM[Double], sigmaSquaresFull: BDV[Double], v: BDM[Double]) = brzSvd(G)
-        (sigmaSquaresFull, uFull)
+        val svdResult = brzSvd(G)
+        (svdResult.S, svdResult.U)
       case SVDMode.DistARPACK =>
         if (rows.getStorageLevel == StorageLevel.NONE) {
           logWarning("The input data is not directly cached, which may hurt performance if its"
@@ -1381,7 +1381,7 @@ class DenseVecMatrix(
    * Multiply this matrix by a local matrix on the right.
    *
    * @param B a local matrix whose number of rows must match the number of columns of this matrix
-   * @return a [[org.apache.spark.mllib.linalg.distributed.RowMatrix]] representing the product,
+   * @return a [[edu.nju.pasalab.marlin.matrix.DenseVecMatrix]] representing the product,
    * which preserves partitioning
    */
   def multiply(B: Matrix): DenseVecMatrix = {
@@ -1392,7 +1392,7 @@ class DenseVecMatrix(
     val Bb = rows.context.broadcast(B)
     val AB = rows.mapPartitions({ iter =>
       val Bi = Bb.value.toBreeze.asInstanceOf[BDM[Double]]
-      iter.map(v => (v._1, Vectors.fromBreeze(Bi.t * v._2.toBreeze)))
+      iter.map(v => (v._1, Vectors.fromBreeze(Bi.t * v._2.toBreeze.asInstanceOf[BDV[Double]])))
     }, preservesPartitioning = true)
     new DenseVecMatrix(AB, nRows, B.numCols)
   }
