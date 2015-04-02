@@ -14,9 +14,9 @@ import edu.nju.pasalab.marlin.utils.MTUtils
 object MatrixMultiply {
 
   def main(args: Array[String]) {
-    if (args.length < 5){
+    if (args.length < 4){
       System.err.println("arguments wrong, the arguments should be " +
-        "<matrix A rows length> <matrix A columns length> <matrix B columns length> <cores across the cluster> <output path> " +
+        "<matrix A rows length> <matrix A columns length> <matrix B columns length> <cores across the cluster>  " +
         "+ optional parameter{<broadcast threshold>}")
       System.exit(-1)
     }
@@ -46,7 +46,7 @@ object MatrixMultiply {
     val result = ma.multiply(mb, args(3).toInt, threshold)
     println("Result RDD counts: " + result.blocks.count())
     println("start store the result matrix in DenseVecMatrix type")
-    result.saveToFileSystem(args(4))
+//    result.saveToFileSystem(args(4))
     sc.stop()
   }
 }

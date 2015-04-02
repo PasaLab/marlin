@@ -1,6 +1,7 @@
 package edu.nju.pasalab.marlin.matrix
 
 import breeze.linalg.{DenseMatrix => BDM}
+import edu.nju.pasalab.marlin.rdd.MatrixMultPartitioner
 import org.apache.hadoop.io.{Text, NullWritable}
 import org.apache.hadoop.mapred.TextOutputFormat
 import org.apache.spark.HashPartitioner
@@ -103,7 +104,7 @@ class BlockMatrix(
           val kSplitNum = numBlksByCol()
           //num of columns to be split of that matrix
           val nSplitNum = mat.numBlksByCol()
-          val partitioner = new HashPartitioner(2 * cores)
+          val partitioner = new MatrixMultPartitioner(mSplitNum, kSplitNum, nSplitNum)
 
           val thisEmitBlocks = blocks.mapPartitions( {
             iter =>
@@ -129,7 +130,7 @@ class BlockMatrix(
             }).partitionBy(partitioner)
 
           if (kSplitNum != 1){
-            val result = thisEmitBlocks.join(otherEmitBlocks)
+            val result = thisEmitBlocks.join(otherEmitBlocks, partitioner)
               .mapPartitions({
               iter =>
                 iter.map{
