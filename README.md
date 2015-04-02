@@ -9,9 +9,7 @@ As Marlin is built on top of Spark, you need to get the Spark installed first.  
 ##Compile Marlin
 We have offered a default `build.sbt` file, make sure you have installed [sbt](http://www.scala-sbt.org/), and you can just type `sbt package`	to get a package, or type `sbt assembly` to get a assembly jar. 
 
-**Note:** In `build.sbt` file, the default Spark Version is 1.0.1, and the default Hadoop version is 2.3.0, you can modify the `build.sbt` file to fit your environment.
-
-**Note:** Version of `breeze` in `Spark 1.1.0`  is `0.9` .
+**Note:** As the API changes in Breeze, we have specially created a new branch named spark-1.0.x which means it is compatible with Spark version 1.0.x, while the master branch mainly focus on the later newest versions of Spark
 
 ##Run Marlin
 We have already offered some examples in `edu.nju.pasalab.marlin.examples` to show how to use the APIs in the project. For example, if you want to run two large matrices multiplication, use spark-submit method, and type in command
