@@ -4,7 +4,7 @@ import breeze.linalg.{DenseMatrix => BDM}
 import edu.nju.pasalab.marlin.rdd.MatrixMultPartitioner
 import org.apache.hadoop.io.{Text, NullWritable}
 import org.apache.hadoop.mapred.TextOutputFormat
-import org.apache.spark.HashPartitioner
+import org.apache.spark.{Logging, HashPartitioner}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext._
 
@@ -25,7 +25,7 @@ class BlockMatrix(
     private var nRows: Long,
     private var nCols: Long,
     private var blksByRow: Int,
-    private var blksByCol: Int) extends DistributedMatrix{
+    private var blksByCol: Int) extends DistributedMatrix with Logging{
 
 
 
@@ -106,48 +106,45 @@ class BlockMatrix(
           val nSplitNum = mat.numBlksByCol()
           val partitioner = new MatrixMultPartitioner(mSplitNum, kSplitNum, nSplitNum)
 
-          val thisEmitBlocks = blocks.mapPartitions( {
-            iter =>
-              iter.flatMap(t => {
+          val thisEmitBlocks = blocks.flatMap({t =>
                 val array = Array.ofDim[(BlockID, BDM[Double])](nSplitNum)
                 for (i <- 0 until nSplitNum) {
                   val seq = t._1.row * nSplitNum * kSplitNum + i * kSplitNum + t._1.column
                   array(i) = (new BlockID(t._1.row, i, seq), t._2)
                 }
-                array
-              })
-          }).partitionBy(partitioner)
-          val otherEmitBlocks = mat.blocks.mapPartitions( {
-              iter =>
-                iter.flatMap(t => {
-                  val array = Array.ofDim[(BlockID, BDM[Double])](mSplitNum)
-                  for (i <- 0 until mSplitNum) {
-                    val seq = i * nSplitNum * kSplitNum + t._1.column * kSplitNum + t._1.row
-                    array(i) = (new BlockID(i, t._1.column, seq), t._2)
-                  }
-                  array
-                })
-            }).partitionBy(partitioner)
-
+                array }
+              ).partitionBy(partitioner)
+//          thisEmitBlocks.count()
+          val otherEmitBlocks = mat.blocks.flatMap( {t =>
+            val array = Array.ofDim[(BlockID, BDM[Double])](mSplitNum)
+            for (i <- 0 until mSplitNum) {
+              val seq = i * nSplitNum * kSplitNum + t._1.column * kSplitNum + t._1.row
+              array(i) = (new BlockID(i, t._1.column, seq), t._2)
+            }
+            array
+          })//.partitionBy(partitioner)
+//          otherEmitBlocks.count()
           if (kSplitNum != 1){
-            val result = thisEmitBlocks.join(otherEmitBlocks, partitioner)
-              .mapPartitions({
-              iter =>
-                iter.map{
-                  t =>
-                    val b1 = t._2._1.asInstanceOf[BDM[Double]]
-                    val b2 = t._2._2.asInstanceOf[BDM[Double]]
-                    val c = (b1 * b2).asInstanceOf[BDM[Double]]
-                    (new BlockID(t._1.row, t._1.column), c)
-                }
+            val otherBlocks = thisEmitBlocks.context.joinBroadcast(otherEmitBlocks)
+            val result = thisEmitBlocks.map({block =>
+              val blkId = block._1
+              val t0 = System.currentTimeMillis()
+              logInfo(s"start multiply")
+              val b1 = block._2.asInstanceOf[BDM[Double]]
+              val b2 = otherBlocks.getValue(blkId)
+              val c = (b1 * b2).asInstanceOf[BDM[Double]]
+              logInfo(s"finish multiply, time consumed ${(System.currentTimeMillis() - t0) / 1000} seconds")
+              (new BlockID(blkId.row, blkId.column), c)
             }).reduceByKey (_ + _)
             new BlockMatrix(result, numRows(), other.numCols (), mSplitNum, nSplitNum)
           } else {
-            val result = thisEmitBlocks.join(otherEmitBlocks)
-              .map(t => {
-              val mat = (t._2._1.asInstanceOf[BDM[Double]] * t._2._2.asInstanceOf[BDM[Double]])
-                .asInstanceOf[BDM[Double]]
-              (new BlockID(t._1.row, t._1.column), mat)
+            val otherBlocks = thisEmitBlocks.context.joinBroadcast(otherEmitBlocks)
+            val result = thisEmitBlocks.map({block =>
+              val blkId = block._1
+              val b1 = block._2.asInstanceOf[BDM[Double]]
+              val b2 = otherBlocks.getValue(blkId)
+              val c = (b1 * b2).asInstanceOf[BDM[Double]]
+              (new BlockID(blkId.row, blkId.column), c)
             })
             new BlockMatrix (result, numRows(), other.numCols(), mSplitNum, nSplitNum)
           }

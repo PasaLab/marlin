@@ -3,13 +3,17 @@ Marlin
 
 A distributed matrix operations library build on top of [Spark](http://spark.apache.org/). Now, the master branch is in version 0.2-SNAPSHOT.  
 
+##Branches Notice
+This branch(spark-marlin) built on a custom version Spark to get better performance for matrix operations, however this branch has not been published out. If you use the official version Spark, please refer to `master` branch or `spark-1.0.x` branch  
+
+
 ##Prerequisites
 As Marlin is built on top of Spark, you need to get the Spark installed first.  If you are not clear how to setup Spark, please refer to the guidelines [here](http://spark.apache.org/docs/latest/). Currently, Marlin is developed on the APIs of Spark 1.0.x version.
 
 ##Compile Marlin
 We have offered a default `build.sbt` file, make sure you have installed [sbt](http://www.scala-sbt.org/), and you can just type `sbt package`	to get a package, or type `sbt assembly` to get a assembly jar. 
 
-**Note:** As the API changes in Breeze, we have specially created a new branch named spark-1.0.x which means it is compatible with Spark version 1.0.x, while the master branch mainly focus on the later newest versions of Spark
+As the API changes in Breeze, we have specially created a new branch named spark-1.0.x which means it is compatible with Spark version 1.0.x, while the master branch mainly focus on the later newest versions of Spark
 
 ##Run Marlin
 We have already offered some examples in `edu.nju.pasalab.marlin.examples` to show how to use the APIs in the project. For example, if you want to run two large matrices multiplication, use spark-submit method, and type in command

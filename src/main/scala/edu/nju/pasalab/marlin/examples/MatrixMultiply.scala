@@ -20,12 +20,12 @@ object MatrixMultiply {
         "+ optional parameter{<broadcast threshold>}")
       System.exit(-1)
     }
-    val conf = new SparkConf()
+    val conf = new SparkConf()//.setMaster("local[4]").setAppName("matrix multiply")
     /**if the matrices are too large, you can set below properties to tune the Spark well*/
     conf.set("spark.storage.memoryFraction", "0.4")
     conf.set("spark.eventLog.enabled", "true")
     conf.set("spark.storage.blockManagerTimeoutIntervalMs", "80000")
-    conf.set("spark.default.parallelism", (2*args(3).toInt).toString)
+    conf.set("spark.default.parallelism", "64")
     conf.set("spark.shuffle.file.buffer.kb", "200")
     conf.set("spark.akka.threads", "8")
 //    conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
@@ -43,10 +43,11 @@ object MatrixMultiply {
     val threshold = if (args.length < 6) {
       300
     }else { args(5).toInt }
-    val result = ma.multiply(mb, args(3).toInt, threshold)
+    val result = ma.multiplyHama(mb, args(3).toInt)
     println("Result RDD counts: " + result.blocks.count())
     println("start store the result matrix in DenseVecMatrix type")
 //    result.saveToFileSystem(args(4))
+//    result.print()
     sc.stop()
   }
 }

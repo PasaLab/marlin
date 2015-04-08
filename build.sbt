@@ -8,7 +8,7 @@ version := "0.2-SNAPSHOT"
 
 libraryDependencies  ++= Seq(
             // for hadoop 2.4
-            "org.apache.hadoop" % "hadoop-client" % "2.4.0" % "provided",
+//            "org.apache.hadoop" % "hadoop-client" % "2.4.0" % "provided",
             // for spark 1.1.x
             //"org.scalanlp" % "breeze_2.10" % "0.9",
             //"org.scalanlp" % "breeze-natives_2.10" % "0.9",
@@ -18,8 +18,8 @@ libraryDependencies  ++= Seq(
             //"org.scalanlp" % "breeze-natives_2.10" % "0.10",
             //"org.apache.spark" %% "spark-core" % "1.2.0" % "provided",
             // for spark 1.3
-	          "org.apache.spark" %% "spark-core" % "1.3.0" % "provided",
-            "org.scalanlp" % "breeze_2.10" % "0.11.1",
+//	          "org.apache.spark" %% "spark-core" % "1.3.0" % "provided",
+//            "org.scalanlp" % "breeze_2.10" % "0.11.1",
             "org.scalanlp" % "breeze-natives_2.10" % "0.11.1",
             "org.scalatest" %% "scalatest" % "1.9.1" % "test",
             "colt" % "colt" % "1.2.0",

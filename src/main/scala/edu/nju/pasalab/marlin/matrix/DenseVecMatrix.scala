@@ -187,13 +187,15 @@ class DenseVecMatrix(
    *               The smaller this argument, the biger every worker get submatrix.
    * @return a distributed matrix in BlockMatrix type
    */
-  private[marlin] def multiplyHama(other: DenseVecMatrix, blkNum: Int): BlockMatrix = {
+  def multiplyHama(other: DenseVecMatrix, blkNum: Int): BlockMatrix = {
     val otherRows = other.numRows()
     require(numCols == otherRows, s"Dimension mismatch: ${numCols} vs ${otherRows}")
 
     resultCols = other.numCols()
     val thisBlocks = asInstanceOf[DenseVecMatrix].toBlockMatrix(blkNum, blkNum)
     val otherBlocks = other.asInstanceOf[DenseVecMatrix].toBlockMatrix(blkNum, blkNum)
+//    thisBlocks.blocks.count()
+//    otherBlocks.blocks.count()
     thisBlocks.multiply(otherBlocks, blkNum * blkNum * blkNum)
   }
 
@@ -205,13 +207,15 @@ class DenseVecMatrix(
    * @return a distributed matrix in BlockMatrix type
    */
 
-  private[marlin] def multiplyCarma(other: DenseVecMatrix, cores: Int): BlockMatrix = {
+  def multiplyCarma(other: DenseVecMatrix, cores: Int): BlockMatrix = {
     val otherRows = other.numRows()
     require(numCols == otherRows, s"Dimension mismatch: ${numCols} vs ${otherRows}")
     val (mSplitNum, kSplitNum, nSplitNum) =
       MTUtils.splitMethod(numRows(), numCols(), other.numCols(), cores)
     val thisCollects = asInstanceOf[DenseVecMatrix].toBlockMatrix(mSplitNum, kSplitNum)
     val otherCollects = other.asInstanceOf[DenseVecMatrix].toBlockMatrix(kSplitNum, nSplitNum)
+    thisCollects.blocks.count()
+    otherCollects.blocks.count()
     thisCollects.multiply(otherCollects, cores)
   }
 
@@ -231,6 +235,8 @@ class DenseVecMatrix(
     require(numCols == otherRows, s"Dimension mismatch: ${numCols} vs ${otherRows}")
     val thisCollects = asInstanceOf[DenseVecMatrix].toBlockMatrix(splits._1, splits._2)
     val otherCollects = other.asInstanceOf[DenseVecMatrix].toBlockMatrix(splits._2, splits._3)
+    thisCollects.blocks.count()
+    otherCollects.blocks.count()
     thisCollects.multiplyBroadcast(otherCollects, parallelism, splits, mode)
   }
 
