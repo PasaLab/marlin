@@ -4,7 +4,7 @@ import breeze.linalg.{DenseMatrix => BDM}
 import edu.nju.pasalab.marlin.rdd.MatrixMultPartitioner
 import org.apache.hadoop.io.{Text, NullWritable}
 import org.apache.hadoop.mapred.TextOutputFormat
-import org.apache.spark.HashPartitioner
+import org.apache.spark.{Logging, HashPartitioner}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext._
 
@@ -25,7 +25,7 @@ class BlockMatrix(
     private var nRows: Long,
     private var nCols: Long,
     private var blksByRow: Int,
-    private var blksByCol: Int) extends DistributedMatrix{
+    private var blksByCol: Int) extends DistributedMatrix with Logging{
 
 
 
@@ -135,9 +135,12 @@ class BlockMatrix(
               iter =>
                 iter.map{
                   t =>
+                    val t0 = System.currentTimeMillis()
+                    logInfo(s"start multiply")
                     val b1 = t._2._1.asInstanceOf[BDM[Double]]
                     val b2 = t._2._2.asInstanceOf[BDM[Double]]
                     val c = (b1 * b2).asInstanceOf[BDM[Double]]
+                    logInfo(s"finish multiply, it consumes ${(System.currentTimeMillis() - t0) / 1000} seconds")
                     (new BlockID(t._1.row, t._1.column), c)
                 }
             }).reduceByKey (_ + _)
