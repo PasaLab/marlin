@@ -38,12 +38,14 @@ object MatrixMultiply {
     //load matrices from file, args(0) is the input matrix file A, args(1) is the input matrix file B
 //    val ma = MTUtils.loadMatrixFile(sc, args(0), args(2).toInt)
 //    val mb = MTUtils.loadMatrixFile(sc, args(1), args(2).toInt)
-    val ma = MTUtils.randomDenVecMatrix(sc, args(0).toInt, args(1).toInt)
-    val mb = MTUtils.randomDenVecMatrix(sc, args(1).toInt, args(2).toInt)
+
+//    val ma = MTUtils.randomDenVecMatrix(sc, args(0).toInt, args(1).toInt)
+    val ma = MTUtils.randomBlockMatrix(sc, args(0).toInt, args(1).toInt, 4, 4)
+    val mb = MTUtils.randomBlockMatrix(sc, args(1).toInt, args(2).toInt, 4, 4)
     val threshold = if (args.length < 6) {
       300
     }else { args(5).toInt }
-    val result = ma.multiplyHama(mb, args(3).toInt)
+    val result = ma.multiply(mb, args(3).toInt)
     println("Result RDD counts: " + result.blocks.count())
     println("start store the result matrix in DenseVecMatrix type")
 //    result.saveToFileSystem(args(4))

@@ -8,6 +8,7 @@ import org.apache.spark.{Logging, HashPartitioner}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext._
 
+import scala.util.Random
 
 
 /**
@@ -126,14 +127,16 @@ class BlockMatrix(
 //          otherEmitBlocks.count()
           if (kSplitNum != 1){
             val otherBlocks = thisEmitBlocks.context.joinBroadcast(otherEmitBlocks)
-            val result = thisEmitBlocks.map({block =>
+            val result = thisEmitBlocks.mapPartitions( iter =>
+              iter.map{block =>
               val blkId = block._1
+              val id = Random.nextInt(1000)
+              val b2 = otherBlocks.getValue(blkId, id)
+              logInfo(s"start $id multiply")
               val t0 = System.currentTimeMillis()
-              logInfo(s"start multiply")
               val b1 = block._2.asInstanceOf[BDM[Double]]
-              val b2 = otherBlocks.getValue(blkId)
               val c = (b1 * b2).asInstanceOf[BDM[Double]]
-              logInfo(s"finish multiply, time consumed ${(System.currentTimeMillis() - t0) / 1000} seconds")
+              logInfo(s"finish $id multiply, time consumed ${(System.currentTimeMillis() - t0) / 1000} seconds")
               (new BlockID(blkId.row, blkId.column), c)
             }).reduceByKey (_ + _)
             new BlockMatrix(result, numRows(), other.numCols (), mSplitNum, nSplitNum)
@@ -141,8 +144,9 @@ class BlockMatrix(
             val otherBlocks = thisEmitBlocks.context.joinBroadcast(otherEmitBlocks)
             val result = thisEmitBlocks.map({block =>
               val blkId = block._1
+              val id = Random.nextInt(1000)
               val b1 = block._2.asInstanceOf[BDM[Double]]
-              val b2 = otherBlocks.getValue(blkId)
+              val b2 = otherBlocks.getValue(blkId, id)
               val c = (b1 * b2).asInstanceOf[BDM[Double]]
               (new BlockID(blkId.row, blkId.column), c)
             })
