@@ -25,7 +25,7 @@ object MatrixMultiply {
     conf.set("spark.storage.memoryFraction", "0.4")
     conf.set("spark.eventLog.enabled", "true")
     conf.set("spark.storage.blockManagerTimeoutIntervalMs", "80000")
-    conf.set("spark.default.parallelism", "64")
+    conf.set("spark.default.parallelism", "128")
     conf.set("spark.shuffle.file.buffer.kb", "200")
     conf.set("spark.akka.threads", "8")
 //    conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
@@ -39,9 +39,10 @@ object MatrixMultiply {
 //    val ma = MTUtils.loadMatrixFile(sc, args(0), args(2).toInt)
 //    val mb = MTUtils.loadMatrixFile(sc, args(1), args(2).toInt)
 
-//    val ma = MTUtils.randomDenVecMatrix(sc, args(0).toInt, args(1).toInt)
-    val ma = MTUtils.randomBlockMatrix(sc, args(0).toInt, args(1).toInt, 4, 4)
-    val mb = MTUtils.randomBlockMatrix(sc, args(1).toInt, args(2).toInt, 4, 4)
+    val ma = MTUtils.randomDenVecMatrix(sc, args(0).toInt, args(1).toInt)
+    val mb = MTUtils.randomDenVecMatrix(sc, args(1).toInt, args(2).toInt)
+//    val ma = MTUtils.randomBlockMatrix(sc, args(0).toInt, args(1).toInt, 4, 4)
+//    val mb = MTUtils.randomBlockMatrix(sc, args(1).toInt, args(2).toInt, 4, 4)
     val threshold = if (args.length < 6) {
       300
     }else { args(5).toInt }

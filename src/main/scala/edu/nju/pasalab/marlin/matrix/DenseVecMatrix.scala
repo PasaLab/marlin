@@ -5,6 +5,7 @@ import java.util.Arrays
 import java.util.Calendar
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{ FileSystem, Path }
+import org.apache.spark.broadcast.JoinBroadcast
 
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.parallel.mutable.ParArray
@@ -16,7 +17,7 @@ import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.Logging
-import org.apache.spark.storage.StorageLevel
+import org.apache.spark.storage.{JoinBroadcastBlockId, StorageLevel}
 
 import edu.nju.pasalab.marlin.utils.MTUtils
 
@@ -27,7 +28,9 @@ import breeze.linalg.{
   svd => brzSvd,
   LU => brzLU,
   inv => brzInv,
-  cholesky => brzCholesky
+  cholesky => brzCholesky,
+  upperTriangular,
+  lowerTriangular
 }
 import breeze.numerics.{ sqrt => brzSqrt }
 import com.github.fommil.netlib.BLAS.{ getInstance => blas }
@@ -36,6 +39,7 @@ import com.github.fommil.netlib.ARPACK
 import org.netlib.util.{ intW, doubleW }
 
 import scala.language.implicitConversions
+import scala.util.Random
 
 class DenseVecMatrix(
   private[marlin] val rows: RDD[(Long, DenseVector)],
@@ -254,6 +258,123 @@ class DenseVecMatrix(
       .map(t => (t._1.toLong, t._2.toLong))
     val result = rows.join(index).map(t => (t._2._2, t._2._1))
     new DenseVecMatrix(result, numRows(), numCols())
+  }
+
+  def blockLUDecomposeNew(mode: String = "auto"): (BlockMatrix, Array[Int]) = {
+    require(numRows() == numCols(),
+      s"LU decompose only support square matrix: ${numRows()} v.s ${numCols()}")
+    object LUmode extends Enumeration {
+      val LocalBreeze, DistSpark = Value
+    }
+    val computeMode = mode match {
+      case "auto" => if (numRows > 6000L) {
+        LUmode.DistSpark
+      } else {
+        LUmode.LocalBreeze
+      }
+      case "breeze" => LUmode.LocalBreeze
+      case "dist" => LUmode.DistSpark
+      case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
+    }
+    val (luResult: BlockMatrix, perm: Array[Int]) = computeMode match {
+      case LUmode.LocalBreeze => {
+        val brz = toBreeze()
+        val lu = brzLU(brz)
+        val pArray = (0 until lu._2.length).toArray
+        for (i <- 0 until lu._2.length) {
+          val tmp = pArray(i)
+          pArray(i) = pArray(lu._2(i) - 1)
+          pArray(lu._2(i) - 1) = tmp
+        }
+        val blk = rows.context.parallelize(Seq((new BlockID(0,0), lu._1)), 1)
+        (new BlockMatrix(blk, lu._1.rows, lu._1.cols, 1, 1), pArray)
+      }
+
+      case LUmode.DistSpark => {
+        val subMatrixBase = rows.context.getConf.getInt("marlin.lu.basesize", 2000)
+        val numBlksRow, numBlksByCol = math.ceil(numRows() / subMatrixBase).toInt
+        val pArray = Array.ofDim[Int](numRows().toInt)
+        var blkMat = this.toBlockMatrix(numBlksRow, numBlksByCol).blocks
+        blkMat.cache()
+        for (i <- 0 until numBlksRow){
+          val lu: JoinBroadcast[String, Object]  = if (i == 0) {
+            rows.context.joinBroadcast(blkMat.filter(block => (block._1.row == i && block._1.column == i))
+              .flatMap { t =>
+              val (mat, p): (BDM[Double], Array[Int]) = brzLU(t._2)
+              val array = Array.ofDim[(String, Object)](3)
+              val l = lowerTriangular(mat).asInstanceOf[BDM[Double]]
+              for (i <- 0 until l.rows) {
+                l.update(i, i, 1.0)
+              }
+              array(0) = ("u", upperTriangular(mat))
+              array(1) = (("l", l))
+              array(2) = (("p", p))
+              array
+            })
+          }else {
+            val luBefore = rows.context.
+              joinBroadcast(blkMat.filter(block => (block._1.row == i - 1 && block._1.column == i) ||
+              (block._1.row == i && block._1.column == i - 1)).map{ blk =>
+              if (blk._1.column == i){
+                ("lBefore", blk._2)
+              }else ("uBefore", blk._2)
+            })
+            rows.context.joinBroadcast(blkMat.filter(block => (block._1.row == i && block._1.column == i))
+              .flatMap { t =>
+              val tag = Random.nextInt(1000)
+              val tmp: BDM[Double] = luBefore.getValue("lBefore", tag) * luBefore.getValue("uBefore", tag)
+              val (mat, p): (BDM[Double], Array[Int]) = brzLU(t._2 - tmp)
+              val array = Array.ofDim[(String, Object)](3)
+              val l = lowerTriangular(mat).asInstanceOf[BDM[Double]]
+              for (i <- 0 until l.rows) {
+                l.update(i, i, 1.0)
+              }
+              luBefore.destroy()
+              array(0) = ("u", upperTriangular(mat))
+              array(1) = (("l", l))
+              array(2) = (("p", p))
+              array
+            })
+          }
+
+            val part = lu.getValue("p", 1).asInstanceOf[Array[Int]]
+            for (j <- 0 until part.length) {
+              pArray(i * part.length + j) = part(j)
+            }
+
+          blkMat = blkMat.map(block => {
+            if( block._1.row == i && block._1.column > i){
+              val p = lu.getValue("p", 1).asInstanceOf[Array[Int]]
+              val array = (0 until p.length).toArray
+              for (j <- 0 until p.length){
+                val tmp = array(i)
+                array(i) = array(p(i) - 1)
+                array(p(i) - 1) = tmp
+              }
+              for (j <- 0 until array.length){
+                array(j) = j
+              }
+              val tag = Random.nextInt(1000)
+              val l = brzInv(lu.getValue("l", tag).asInstanceOf[BDM[Double]])
+              val permutation = BDM.zeros[Double](l.rows, l.cols)
+              for(j <- 0 until array.length){
+                permutation.update(i * l.cols, array(i), 1.0)
+              }
+              val tmp: BDM[Double] = l * permutation.asInstanceOf[BDM[Double]]
+              (block._1, tmp * block._2)
+            }else if( block._1.column == i && block._1.row > i){
+              val tag = Random.nextInt(1000)
+              (block._1, block._2 * brzInv(lu.getValue("u", tag).asInstanceOf[BDM[Double]]))
+            }else if(block._1.row == i && block._1.column == i){
+              (block._1, brzLU(block._2)._1)
+            }else block
+          })
+          lu.destroy()
+        }
+        (new BlockMatrix(blkMat), pArray)
+      }
+    }
+    (luResult, perm)
   }
 
   /**
