@@ -1,8 +1,10 @@
 package edu.nju.pasalab.marlin.rdd
 
+import org.apache.spark.annotation.DeveloperApi
+
 import scala.util.Random
 
-import breeze.linalg.{DenseMatrix => BDM}
+import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{Partition, SparkContext, TaskContext}
 
@@ -66,6 +68,38 @@ private [marlin]  object RandomRDD {
     val arrayIt = array.slice(0 + partition.start.toInt, array.length).toIterator
     Iterator.fill(partition.size)(arrayIt.next(),
       new BDM(rows, columns, Array.fill(rows*columns)(generator.nextValue())))
+  }
+
+  def getDistVectorIterator(
+      partition: RandomRDDPartition[Double],
+      vectorLength: Int,
+      numSplit: Int): Iterator[(Int, BDV[Double])] = {
+    val generator = partition.generator.copy()
+    generator.setSeed(partition.seed)
+    val index = (0 + partition.start until numSplit).toIterator
+    Iterator.fill(partition.size)(index.next().toInt,
+      new BDV[Double](Array.fill(vectorLength)(generator.nextValue())))
+  }
+}
+
+
+private[marlin] class RandomDistVectorRDD(@transient sc: SparkContext,
+    length: Long,
+    numSplits: Int,
+    @transient rng: RandomDataGenerator[Double],
+    @transient seed: Long = System.nanoTime()) extends RDD[(Int, BDV[Double])](sc, Nil){
+  @DeveloperApi
+  override def compute(splitIn: Partition, context: TaskContext): Iterator[(Int, BDV[Double])] = {
+    val split = splitIn.asInstanceOf[RandomRDDPartition[Double]]
+    var splitLength = math.ceil(length.toDouble / numSplits.toDouble).toInt
+    if (splitIn.index == numSplits - 1){
+      splitLength = length.toInt - splitLength * splitIn.index
+    }
+    RandomRDD.getDistVectorIterator(split, splitLength, numSplits)
+  }
+
+  override protected def getPartitions: Array[Partition] = {
+    RandomRDD.getPartitions(numSplits, numSplits, rng, seed)
   }
 }
 

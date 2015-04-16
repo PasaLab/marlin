@@ -1,6 +1,7 @@
 package edu.nju.pasalab.marlin.rdd
 
-import breeze.linalg.{DenseMatrix => BDM}
+import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV}
+
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 
@@ -29,6 +30,14 @@ object RandomRDDs {
       seed: Long = System.nanoTime()): RDD[(Long, DenseVector)] = {
     new RandomDenVecRDD(
       sc, numRows, numCols, numPartitionsOrDefault(sc, numPartitions), generator, seed)
+  }
+
+  def randomDistVectorRDD(sc: SparkContext,
+      generator: RandomDataGenerator[Double],
+      length: Long,
+      numSplits: Int,
+      seed: Long = System.nanoTime()): RDD[(Int, BDV[Double])] = {
+    new RandomDistVectorRDD(sc, length, numSplits, generator, seed)
   }
 
   /**

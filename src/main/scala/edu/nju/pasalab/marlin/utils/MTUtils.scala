@@ -65,7 +65,15 @@ object MTUtils {
       distribution: RandomDataGenerator[Double] = new UniformGenerator(0.0, 1.0)): DenseVecMatrix = {
     
     val rows = RandomRDDs.randomDenVecRDD(sc, distribution, nRows, nColumns, numPartitionsOrDefault(sc, numPartitions))
-    new DenseVecMatrix(rows, nRows, nColumns)  
+    new DenseVecMatrix(rows, nRows, nColumns)
+  }
+
+  def randomDistVector(sc: SparkContext,
+      length: Long,
+      numSplits: Int,
+      distribution: RandomDataGenerator[Double] = new UniformGenerator(0.0, 1.0)): DistributedVector = {
+    val parts = RandomRDDs.randomDistVectorRDD(sc, distribution, length, numSplits)
+    new DistributedVector(parts)
   }
 
   /**
@@ -99,6 +107,17 @@ object MTUtils {
     val rows = RandomRDDs.onesDenVecRDD(sc, nRows, nColumns)
     new DenseVecMatrix(rows, nRows, nColumns)
   }
+
+
+  def onesDistVector(sc: SparkContext,
+      length: Long,
+      numSplits: Int): DistributedVector = {
+    val ones = new OnesGenerator()
+    val parts = RandomRDDs.randomDistVectorRDD(sc, ones, length, numSplits)
+    new DistributedVector(parts)
+  }
+
+
 
   /**
    * Function to design the method how to split input two matrices
@@ -149,6 +168,62 @@ object MTUtils {
   }
 
   /**
+   * Function to load Coordinate matrix from file
+   * @param sc the running SparkContext
+   * @param path the path where store the matrix
+   * @param minPartitions the min num of partitions of the matrix to load in Spark
+  */
+  def loadCoordinateMatrix(sc: SparkContext, path: String, minPartitions: Int = 4): CoordinateMatrix = {
+    if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://")
+      && !path.startsWith("/") && !path.startsWith("~/")) {
+      System.err.println("the path is not in local file System, HDFS or Tachyon")
+      throw new IllegalArgumentException("the path is not in local file System, HDFS or Tachyon")
+    }
+    val data = sc.textFile(path, minPartitions)
+    val entries = data.map(_.split(",\\s?|\\s+") match {
+      case Array(rowId, colId, value) =>
+        ((rowId.toLong, colId.toLong), value.toDouble)
+      // like MovieLens data, except the (user, product, rating) there still exist time stamp data
+      case Array(rowId, colId, value, timeStamp) =>
+        ((rowId.toLong, colId.toLong), value.toDouble)
+    })
+    new CoordinateMatrix(entries)
+  }
+
+  /**
+   * Function to load SVM like file, actually the first item of each line is not the label but the line index
+   * @param sc the running SparkContext
+   * @param path the path where store the matrix
+   * @param vectorLen the length of each vector
+   * @param minPartitions the min num of partitions of the matrix to load in Spark
+   * @return
+   */
+  def loadSVMDenVecMatrix(sc: SparkContext, path: String, vectorLen: Int, minPartitions: Int = 4): DenseVecMatrix = {
+    if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://")
+      && !path.startsWith("/") && !path.startsWith("~/")) {
+      System.err.println("the path is not in local file System, HDFS or Tachyon")
+      throw new IllegalArgumentException("the path is not in local file System, HDFS or Tachyon")
+    }
+    val data = sc.textFile(path, minPartitions)
+    val rows = data.map { line =>
+      val items = line.split(" ")
+      val index = items.head.toLong
+      val indicesAndValues = items.tail.map{ item =>
+        val indexAndValue = item.split(":")
+        val ind = indexAndValue(0).toInt - 1
+        val value = indexAndValue(1).toDouble
+        (ind, value)
+      }
+      val array = Array.ofDim[Double](vectorLen)
+      for ((i, v) <- indicesAndValues){
+        array.update(i, v)
+      }
+      (index, new DenseVector(array))
+    }
+    new DenseVecMatrix(rows, 0L, vectorLen)
+  }
+
+  /**
    * Function to load matrix from file
    *
    * @param sc the running SparkContext
@@ -160,7 +235,6 @@ object MTUtils {
     if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://")
       && !path.startsWith("/") && !path.startsWith("~/")) {
       System.err.println("the path is not in local file System, HDFS or Tachyon")
-//      System.exit(1)
       throw new IllegalArgumentException("the path is not in local file System, HDFS or Tachyon")
     }
     val file = sc.textFile(path, minPartitions)

@@ -1,6 +1,7 @@
 package edu.nju.pasalab.marlin.matrix
 
-import breeze.linalg.{DenseMatrix => BDM}
+import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV}
+import scala.{specialized=>spec}
 import edu.nju.pasalab.marlin.rdd.MatrixMultPartitioner
 import org.apache.hadoop.io.{Text, NullWritable}
 import org.apache.hadoop.mapred.TextOutputFormat
@@ -65,6 +66,8 @@ class BlockMatrix(
     }
     blksByCol
   }
+
+  def getBlocks = blocks
 
   /** Collects data and assembles a local dense breeze matrix (for test only). */
   override private[matrix] def toBreeze(): BDM[Double] = {
@@ -182,6 +185,39 @@ class BlockMatrix(
   final def multiply(b: Double): BlockMatrix = {
     val result = blocks.mapValues(t => (t * b).asInstanceOf[BDM[Double]])
     new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
+  }
+
+  final def multiply(v: DistributedVector): DistributedVector = {
+    require((blksByRow == 1 && blksByCol == v.splitNums) ||
+      (blksByCol == 1), s"not supported matrix or vector")
+    require(numCols() == v.length, s"dimension mismatch ${numCols()} v.s ${v.length}")
+    val bv = blocks.context.joinBroadcast(v.vectors)
+    val vectors = blocks.map{ case(blkID, blk) =>
+        val tag = Random.nextInt(1000)
+      (blkID.column, (blk * bv.getValue(blkID.column, tag)))
+    }
+    new DistributedVector(vectors)
+  }
+
+  final def multiply(v: BDV[Double]): DistributedVector = {
+    require(numCols() == v.length, s"matrix columns size ${numCols()} not support vector length ${v.length}")
+    require(numBlksByCol() == 1, s"should not split the matrix by column")
+    val vector = blocks.context.broadcast(v)
+    val splits = blocks.mapPartitions(parts =>
+    parts.map{ case(blkID, blk) =>
+      (blkID.row, blk * vector.value)
+    }, preservesPartitioning = true)
+    new DistributedVector(splits)
+  }
+
+  final def multiply(B: BDM[Double]): BlockMatrix = {
+    require(numCols() == B.rows, s"Dimension mismatch: ${numCols()} vs ${B.rows}")
+    require(numBlksByCol() == 1, s"currently only support BlockMatrix with 1 block by column")
+    val Bb = getBlocks.context.broadcast(B)
+    val blocksMat = getBlocks.map{
+      block => (block._1, (block._2.asInstanceOf[BDM[Double]] * Bb.value).asInstanceOf[BDM[Double]])
+    }
+    new BlockMatrix(blocksMat, numRows(), B.cols, numBlksByRow(), numBlksByCol())
   }
 
   /**

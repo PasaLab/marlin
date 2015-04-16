@@ -20,7 +20,7 @@ libraryDependencies  ++= Seq(
             // for spark 1.3
 //	          "org.apache.spark" %% "spark-core" % "1.3.0" % "provided",
 //            "org.scalanlp" % "breeze_2.10" % "0.11.1",
-            "org.scalanlp" % "breeze-natives_2.10" % "0.11.1",
+//            "org.scalanlp" % "breeze-natives_2.10" % "0.11.1",
             "org.scalatest" %% "scalatest" % "1.9.1" % "test",
             "colt" % "colt" % "1.2.0",
             "com.github.fommil.netlib" % "all" % "1.1.2" pomOnly()
