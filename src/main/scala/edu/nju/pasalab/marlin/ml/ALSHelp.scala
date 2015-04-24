@@ -1,5 +1,13 @@
 package edu.nju.pasalab.marlin.ml
 
+
+import scala.{specialized => spec}
+import scala.collection.mutable
+import scala.collection.mutable.ArrayBuffer
+import scala.math._
+import scala.util.hashing._
+import scala.util.{Random, Sorting}
+
 import edu.nju.pasalab.marlin.matrix.{DenseVecMatrix, Vectors, DenseVector, DistributedMatrix}
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.storage.StorageLevel
@@ -8,11 +16,7 @@ import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext._
 import breeze.linalg.{DenseMatrix => BDM, axpy, inv}
 
-import scala.collection.mutable
-import scala.collection.mutable.ArrayBuffer
-import scala.math._
-import scala.util.hashing._
-import scala.util.{Random, Sorting}
+
 
 private[marlin]
 case class OutLinkBlock(elementIds: Array[Int], shouldSend: Array[mutable.BitSet])
@@ -27,10 +31,10 @@ object ALSHelp {
   /** storage level for user/product in/out links */
   private val intermediateRDDStorageLevel: StorageLevel = StorageLevel.MEMORY_AND_DISK
 
-  def ALSRun(entries: RDD[((Long, Long), Double)],
+  def ALSRun(entries: RDD[((Long, Long), Float)],
              rank:Int, iterations:Int, lambda:Double, numUserBlock:Int, numProductBlock:Int, implicitPrefs: Boolean, alpha: Double,
              seed: Long = System.nanoTime()): (DenseVecMatrix, DenseVecMatrix) = {
-    val ratings = entries.map(r => new Rating(r._1._1.toInt, r._1._1.toInt, r._2.toFloat))
+    val ratings = entries.map(r => new Rating(r._1._1.toInt, r._1._1.toInt, r._2))
     val sc = entries.context
 
     val numUserBlocks = if (numUserBlock == -1) {
@@ -329,12 +333,12 @@ object ALSHelp {
             numRatings(us(i)) += 1
             // Extension to the original paper to handle rs(i) < 0. confidence is a function
             // of |rs(i)| instead so that it is never negative:
-            val confidence = 1 + alpha * abs(rs(i))
+            val confidence = 1 + alpha * abs(rs(i).asInstanceOf[Double])
             axpy(confidence - 1.0, tempXtX, userXtX(us(i)))
             // For rs(i) < 0, the corresponding entry in P is 0 now, not 1 -- negative rs(i)
             // means we try to reconstruct 0. We add terms only where P = 1, so, term below
             // is now only added for rs(i) > 0:
-            if (rs(i) > 0) {
+            if (rs(i).asInstanceOf[Double] > 0) {
               axpy(confidence, x, userXy(us(i)))
             }
             i += 1
@@ -345,7 +349,7 @@ object ALSHelp {
             numRatings(us(i)) += 1
             //userXtX(us(i)).addi(tempXtX)
             userXtX(us(i)) += tempXtX
-            axpy(rs(i).toDouble, x, userXy(us(i)))
+            axpy(rs(i).asInstanceOf[Double], x, userXy(us(i)))
             i += 1
           }
         }

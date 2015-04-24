@@ -1,5 +1,7 @@
 package edu.nju.pasalab.marlin.matrix
 
+import scala.{specialized => spec}
+
 import breeze.linalg.{DenseMatrix => BDM}
 import edu.nju.pasalab.marlin.ml.ALSHelp
 import org.apache.spark.rdd.RDD
@@ -24,11 +26,11 @@ case class MatrixEntry(codinate: (Long, Long), value: Double)
  * columns will be determined by the max column index plus one.
  */
 class CoordinateMatrix(
-  val entries: RDD[((Long, Long), Double)],
+  val entries: RDD[((Long, Long), Float)],
   private var nRows: Long,
   private var nCols: Long)  {
   /** Alternative constructor leaving matrix dimensions to be determined automatically. */
-  def this(entries: RDD[((Long, Long), Double)]) = this(entries, 0L, 0L)
+  def this(entries: RDD[((Long, Long), Float)]) = this(entries, 0L, 0L)
   /** Gets or computes the number of columns. */
   def numCols(): Long = {
     if (nCols <= 0L) {
@@ -53,7 +55,7 @@ class CoordinateMatrix(
         "too large.")
     }
     val n = nl.toInt
-    val indexedRows = entries.map(entry => (entry._1._1, (entry._1._2.toInt, entry._2)))
+    val indexedRows = entries.map(entry => (entry._1._1, (entry._1._2.toInt, entry._2.asInstanceOf[Double])))
       .groupByKey()
       .map { case (i, vectorEntries) =>
       (i, Vectors.dense(Vectors.sparse(n, vectorEntries.toSeq).toArray))
@@ -78,7 +80,7 @@ class CoordinateMatrix(
     val n = numCols().toInt
     val mat = BDM.zeros[Double](m, n)
     entries.collect().foreach { case ((i, j), value) =>
-      mat(i.toInt, j.toInt) = value
+      mat(i.toInt, j.toInt) = value.asInstanceOf[Double]
     }
     mat
   }

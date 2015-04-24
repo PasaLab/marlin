@@ -9,6 +9,8 @@ import java.util.Arrays
 
 import scala.annotation.varargs
 import scala.collection.JavaConverters._
+import scala.reflect.ClassTag
+import scala.{specialized => spec}
 
 import breeze.linalg.{Vector => BV, DenseVector => BDV, SparseVector => BSV}
 import org.apache.hadoop.io.Writable

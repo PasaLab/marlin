@@ -3,6 +3,7 @@ package edu.nju.pasalab.marlin.utils
 import java.nio.ByteBuffer
 
 import scala.util.hashing.MurmurHash3
+import scala.{specialized => spec}
 
 import breeze.linalg.{DenseMatrix => BDM}
 import org.apache.spark.SparkContext
@@ -182,10 +183,10 @@ object MTUtils {
     val data = sc.textFile(path, minPartitions)
     val entries = data.map(_.split(",\\s?|\\s+") match {
       case Array(rowId, colId, value) =>
-        ((rowId.toLong, colId.toLong), value.toDouble)
+        ((rowId.toLong, colId.toLong), value.toFloat)
       // like MovieLens data, except the (user, product, rating) there still exist time stamp data
       case Array(rowId, colId, value, timeStamp) =>
-        ((rowId.toLong, colId.toLong), value.toDouble)
+        ((rowId.toLong, colId.toLong), value.toFloat)
     })
     new CoordinateMatrix(entries)
   }
