@@ -3,7 +3,7 @@ package edu.nju.pasalab.marlin.matrix
 import edu.nju.pasalab.marlin.utils.{ MTUtils, LocalSparkContext }
 import org.apache.spark.rdd.RDD
 import org.scalatest.FunSuite
-import breeze.linalg.{ DenseMatrix => BDM }
+import breeze.linalg.{ DenseMatrix => BDM, DenseVector => BDV }
 
 class MatrixSuite extends FunSuite with LocalSparkContext {
 
@@ -325,6 +325,24 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
      val svd = mat.computeSVD(3, true)
      assert(svd.s.toBreeze == Vectors.dense(17.92, 15.17, 3.56).toBreeze)  
    }
-   * 
    */
+
+  test("distributed vector multiplication") {
+    val vectors = Seq(
+      (0, BDV(1.0, 2.0)),
+      (1, BDV(3.0, 4.0)))
+    val disVec1 = new DistributedVector(sc.parallelize(vectors))
+    val disVec2 = new DistributedVector(sc.parallelize(vectors))
+    val expected = BDM(
+      (1.0, 2.0, 3.0, 4.0),
+      (2.0, 4.0, 6.0, 8.0),
+      (3.0, 6.0, 9.0, 12.0),
+      (4.0, 8.0, 12.0,16.0))
+    val matResult = disVec1.multiply(disVec2.transpose())
+    val doubleResult = disVec1.transpose().multiply(disVec2)
+    val doubleResultLocal = disVec1.transpose().multiply(disVec2, "local")
+    assert(matResult.right.get.toBreeze() === expected)
+    assert(doubleResult.left.get === 30.0)
+    assert(doubleResultLocal.left.get === 30.0)
+  }
 }
