@@ -106,7 +106,7 @@ class DistributedVector(
         val v2 = other.toBreeze()
         v1 * v2
       }else {
-        throw new IllegalArgumentException("unreconginzed mode")
+        throw new IllegalArgumentException("unrecognized mode")
       }
       Left(result)
     }else {

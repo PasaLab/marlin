@@ -109,6 +109,25 @@ class DenseVecMatrix(
     multiply(other, cores, 300)
   }
 
+
+  /**
+   * matrix-matrix multiply, here I use customized split method
+   *
+   * @param other
+   * @param splitMode the left matrix split into m by k blocks, the right matrix split into k by n blocks
+   */
+  def multiply(other: DenseVecMatrix, splitMode: (Int, Int, Int)): BlockMatrix = {
+    val (m, k, n) = splitMode
+    val thisBlocks = toBlockMatrix(m, k)
+    val otherBlocks = other.toBlockMatrix(k, n)
+    thisBlocks.multiply(otherBlocks)
+  }
+
+  def multiply(vector: DistributedVector, splitMode: (Int, Int)): DistributedVector = {
+    val (m, k) = splitMode
+    toBlockMatrix(m, k).multiply(vector)
+  }
+
   /**
    * Matrix-matrix multiply
    *
