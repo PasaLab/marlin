@@ -263,6 +263,216 @@ class DenseVecMatrix(
     new DenseVecMatrix(result, numRows(), numCols())
   }
 
+     
+  def blockLUDecomposeNewNew(mode: String = "auto"): (BlockMatrix, Array[Int]) = {
+    require(numRows() == numCols(),
+      s"LU decompose only support square matrix: ${numRows()} v.s ${numCols()}")
+    object LUmode extends Enumeration {
+      val LocalBreeze, DistSpark = Value
+    }
+    val computeMode = mode match {
+      case "auto" => if (numRows > 6L) {
+        LUmode.DistSpark
+      } else {
+        LUmode.LocalBreeze
+      }
+      case "breeze" => LUmode.LocalBreeze
+      case "dist" => LUmode.DistSpark
+      case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
+    }
+    val (luResult: BlockMatrix, perm: Array[Int]) = computeMode match {
+      case LUmode.LocalBreeze => {
+        val brz = toBreeze()
+        val lu = brzLU(brz)
+        val pArray = (0 until lu._2.length).toArray
+        for (i <- 0 until lu._2.length) {
+          val tmp = pArray(i)
+          pArray(i) = pArray(lu._2(i) - 1)
+          pArray(lu._2(i) - 1) = tmp
+        }
+        val blk = rows.context.parallelize(Seq((new BlockID(0, 0), lu._1)), 1)
+        (new BlockMatrix(blk, lu._1.rows, lu._1.cols, 1, 1), pArray)
+      }
+
+      case LUmode.DistSpark => {
+        val subMatrixBase = rows.context.getConf.getInt("marlin.lu.basesize", 1000)
+        val numBlksByRow, numBlksByCol = math.ceil(numRows().toDouble / subMatrixBase.toDouble).toInt
+        val pArray = Array.ofDim[Int](numRows().toInt)
+
+        var blkMat = this.toBlockMatrix(numBlksByRow, numBlksByCol).blocks
+        val partitioner = new HashPartitioner(2 * getClusterCores())
+        blkMat.partitionBy(partitioner).cache()
+        //val partitioner = if (blkMat.partitioner.isDefined) blkMat.partitioner.get else new HashPartitioner(2 * getClusterCores())
+        for (i <- 0 until numBlksByRow) {
+
+          logInfo(s"LU iteration: $i")
+          val bdata = rows.context.broadcast(blkMat
+            .filter(block => block._1.row == i && block._1.column == i)
+            .collect().head._2)
+
+
+          val t0 = System.currentTimeMillis()
+          val (mat, p) = brzLU(bdata.value)
+          logInfo(s"in iteration $i, in master lu takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
+          val l = breeze.linalg.lowerTriangular(mat)
+          for (i <- 0 until l.rows) {
+            l.update(i, i, 1.0)
+          }
+
+          val perm = (0 until p.length).toArray
+          for (i <- 0 until perm.length) {
+            val tmp = perm(i)
+            perm(i) = perm(p(i) - 1)
+            perm(p(i) - 1) = tmp
+          }
+
+          for (j <- 0 until perm.length) {
+            pArray(i * subMatrixBase + j) = i * subMatrixBase + perm(j)
+          }
+
+          val blup = rows.context.broadcast((l, breeze.linalg.upperTriangular(mat), perm))
+
+          val matFirstNew = blkMat.filter(block => block._1.row == i && block._1.column == i)
+            .mapValues(mat => {
+            val t0 = System.currentTimeMillis()
+            val result = brzLU(mat)._1
+            logInfo(s"in iteration $i, computation(lu) for A1 takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
+            (result)
+          })
+
+
+          val nSplitNum, mSplitNum = numBlksByRow - (i + 1)
+          val kSplitNum = 1
+          val matSecond = blkMat
+            .filter(block => block._1.row == i && block._1.column > i)
+
+          val matThird =  blkMat
+            .filter(block => block._1.row > i && block._1.column == i)
+
+          val matThirdEmit = matThird
+            .mapPartitions( {
+            iter =>
+              iter.flatMap(t => {
+                val array = Array.ofDim[(BlockID, BDM[Double])](nSplitNum)
+                for (j <- 0 until nSplitNum) {
+                  val seq = t._1.row * nSplitNum * kSplitNum + (j+i+1) * kSplitNum + t._1.column
+                  array(j) = (new BlockID(t._1.row, (j+i+1), seq), t._2)
+                }
+                array
+              })
+          }).partitionBy(partitioner)
+
+
+          val matSecondEmit = matSecond
+            .mapPartitions( {
+            iter =>
+              iter.flatMap(t => {
+                val array = Array.ofDim[(BlockID, BDM[Double])](mSplitNum)
+                for (j <- 0 until mSplitNum) {
+                  val seq = (j + i + 1) * nSplitNum * kSplitNum + t._1.column * kSplitNum + t._1.row
+                  array(j) = (new BlockID(j + i + 1, t._1.column, seq), t._2)
+                }
+                array
+              })
+          }).partitionBy(partitioner)
+
+          val mult = matThirdEmit.join(matSecondEmit)
+            .map(t => {
+            val mat = (t._2._1.asInstanceOf[BDM[Double]] * (bdata.value \ t._2._2.asInstanceOf[BDM[Double]]))
+              .asInstanceOf[BDM[Double]]
+            (new BlockID(t._1.row, t._1.column), mat)
+          }).partitionBy(partitioner)
+
+          val matSecondNew = matSecond.mapValues(mat => {
+            val p = blup.value._3
+            val l = blup.value._1
+            val permutation = BDM.zeros[Double](p.length, p.length)
+            for (j <- 0 until p.length) {
+              permutation.update(j, p(j), 1.0)
+            }
+
+            val t0 = System.currentTimeMillis()
+            val tmp = (l \ permutation) * mat
+            logInfo(s"in iteration $i, computation for A2 takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
+
+            tmp
+          })
+
+          val matThirdNew = matThird.mapValues(mat => {
+            val t0 = System.currentTimeMillis()
+            val tmp = mat * brzInv(blup.value._2)
+            logInfo(s"in iteration $i, computation for A3 takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
+            (tmp)
+          })
+
+          val matForthNew = blkMat
+            .filter(block => block._1.column > i && block._1.row > i)
+            .join(mult, partitioner).mapValues(t => t._1 - t._2)
+
+          val matOld = blkMat
+            .filter(block => block._1.column < i || block._1.row < i)
+
+println("first new: " + matFirstNew.partitioner.toString())
+          println("second new: " + matSecondNew.partitioner.toString())
+          println("third new: " + matThirdNew.partitioner.toString())
+          println("fourth new: " + matForthNew.partitioner.toString())
+          println("old: " + matOld.partitioner.toString())
+
+          blkMat = matOld.
+            union(matFirstNew)
+            .union(matSecondNew)
+            .union(matThirdNew)
+            .union(matForthNew)
+           // .coalesce(2 * getClusterCores())
+            .partitionBy(partitioner)
+
+/**
+          blkMat = blkMat
+            .cogroup(matSecondNew, matThirdNew, matForthNew)
+            .mapPartitions(iter => {
+            iter.map (t => {
+              if (t._1.row < i || t._1.column < i) {
+                (t._1, t._2._1.head)
+              }
+              else if (t._1.row == i && t._1.column == i) {
+                (t._1, brzLU(t._2._1.head)._1)
+              }
+              else if (t._1.row == i && t._1.column > i) {
+                (t._1, t._2._2.head)
+              }
+              else if (t._1.row > i && t._1.column == i) {
+                (t._1, t._2._3.head)
+              }
+              else {
+                (t._1, t._2._4.head)
+              }
+            })}, true)
+  */
+        }
+
+        val bpArray = blkMat.context.broadcast(pArray)
+        blkMat = blkMat.map(block =>
+          if (block._1.row > block._1.column) {
+            val array = bpArray.value
+              .slice(subMatrixBase * block._1.row,
+                if (block._1.row == numBlksByRow - 1) {numRows().toInt} else {subMatrixBase * block._1.row + subMatrixBase})
+
+            val permutation = BDM.zeros[Double](array.length, array.length)
+            for (j <- 0 until array.length) {
+              permutation.update(j, array(j) - subMatrixBase * block._1.row, 1.0)
+            }
+            (block._1, permutation * block._2)
+          }else {
+            block
+          }
+        )
+        (new BlockMatrix(blkMat), pArray)
+      }
+    }
+
+    (luResult, perm)
+  }
+
   def blockLUDecomposeNew(mode: String = "auto"): (BlockMatrix, Array[Int]) = {
     require(numRows() == numCols(),
       s"LU decompose only support square matrix: ${numRows()} v.s ${numCols()}")
