@@ -14,10 +14,9 @@ import scala.collection.parallel.mutable.ParArray
 import org.apache.hadoop.io.{ Text, NullWritable }
 import org.apache.hadoop.mapred.TextOutputFormat
 import org.apache.log4j.{ Logger, Level }
-import org.apache.spark.SparkContext
+import org.apache.spark.{HashPartitioner, SparkContext, Logging}
 import org.apache.spark.SparkContext._
 import org.apache.spark.rdd.RDD
-import org.apache.spark.Logging
 import org.apache.spark.storage.{JoinBroadcastBlockId, StorageLevel}
 
 import edu.nju.pasalab.marlin.utils.MTUtils
