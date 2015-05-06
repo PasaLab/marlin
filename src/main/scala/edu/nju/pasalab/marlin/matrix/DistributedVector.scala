@@ -4,7 +4,7 @@ import scala.{specialized=>spec}
 import breeze.linalg.{DenseVector => BDV, DenseMatrix => BDM, Transpose}
 
 import org.apache.spark.rdd.RDD
-import org.apache.spark.Logging
+import org.apache.spark.{SparkContext, Logging}
 
 /**
  * a distributed view of long large vector, currently
@@ -28,7 +28,7 @@ class DistributedVector(
     columnMajor = boolean
   }
 
-  def splitNums: Int = {
+  def splitNum: Int = {
     if (splits <= 0) {
       splits = vectors.count().toInt
     }
@@ -45,7 +45,7 @@ class DistributedVector(
   def substract(v: DistributedVector): DistributedVector = {
     require(length == v.length, s"unsupported vector length: ${length} v.s ${v.length}")
     val result = vectors.join(v.vectors).map(t => (t._1, t._2._1 - t._2._2))
-    new DistributedVector(result, v.length, splitNums)
+    new DistributedVector(result, v.length, splitNum)
   }
 
   def getVectors = vectors
@@ -54,7 +54,7 @@ class DistributedVector(
    * a transposed view of the vector
    */
   def transpose(): DistributedVector = {
-    val result = new DistributedVector(vectors, length, splitNums)
+    val result = new DistributedVector(vectors, length, splitNum)
     result.setColumnMajor(false)
     result
   }
@@ -77,27 +77,27 @@ class DistributedVector(
    * get a BlockMatrix result; if the left vector is row-vector and the right vector is a column-vector, then get 
    * a double variable.
    * @param other
-   * @param mode "auto" mode means multiply two vector in distributed environment, while the "local" mode means get the 
+   * @param mode "dist" mode means multiply two vector in distributed environment, while the "local" mode means get the
    *             two vector local and then run computation
    */
-  def multiply(other: DistributedVector, mode: String = "auto"): Either[Double, BlockMatrix] = {
+  def multiply(other: DistributedVector, mode: String = "dist"): Either[Double, BlockMatrix] = {
     require(length == other.length, s"the length of these two vectors are not the same")
-    require(splitNums == other.splitNums, s"currently, only support two vectors with the same splits")
+    require(splitNum == other.splitNum, s"currently, only support two vectors with the same splits")
     if (columnMajor == true && other.columnMajor == false){
-      if (splitNums == other.splitNums){
+      if (splitNum == other.splitNum){
         val thisVecEmits = vectors.flatMap{
-          case(id, v) => Iterator.tabulate(splitNums)(i => (new BlockID(id, i), v))}
+          case(id, v) => Iterator.tabulate(splitNum)(i => (new BlockID(id, i), v))}
         val otherVecEmits = other.getVectors.flatMap{
-          case(id, v) => Iterator.tabulate(splitNums)(i => (new BlockID(i, id), v))}
+          case(id, v) => Iterator.tabulate(splitNum)(i => (new BlockID(i, id), v))}
         val blocks = thisVecEmits.join(otherVecEmits).map{
           case(blkId, (v1, v2)) => (blkId, v1 * v2.t)}
-        val result = new BlockMatrix(blocks, length, length, splitNums, splitNums)
+        val result = new BlockMatrix(blocks, length, length, splitNum, splitNum)
         Right(result)
       }else {
         throw new IllegalArgumentException("currently, not supported for vectors with different dimension")
       }
     }else if (columnMajor == false && other.columnMajor == true){
-      val result: Double = if (mode.toLowerCase().equals("auto")) {
+      val result: Double = if (mode.toLowerCase().equals("dist")) {
         vectors.join(other.getVectors).map { case (id, (v1, v2)) =>
           v1.t * v2
         }.reduce(_ + _)
@@ -114,7 +114,13 @@ class DistributedVector(
     }
   }
 
+}
 
-
-
+object DistributedVector {
+  def fromVector(sc: SparkContext, vector: BDV[Double], numSplits: Int): DistributedVector = {
+    val vecLen = math.ceil(vector.length.toDouble / numSplits.toDouble).toInt
+    val vectors = Iterator.tabulate[(Int, BDV[Double])](numSplits)(i => (i,
+      vector.slice(i* vecLen, math.min((i + 1) * vecLen , vector.length)))).toSeq
+    new DistributedVector(sc.parallelize(vectors, numSplits), vector.length, numSplits )
+  }
 }

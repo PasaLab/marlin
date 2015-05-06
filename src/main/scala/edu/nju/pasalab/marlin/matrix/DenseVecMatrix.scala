@@ -74,7 +74,7 @@ class DenseVecMatrix(
   def getRows = rows
 
   /** Collects data and assembles a local dense breeze matrix (for test only). */
-  override private[matrix] def toBreeze(): BDM[Double] = {
+  override private[marlin] def toBreeze(): BDM[Double] = {
     val m = numRows().toInt
     val n = numCols().toInt
     val mat = BDM.zeros[Double](m, n)
@@ -117,15 +117,43 @@ class DenseVecMatrix(
    * @param splitMode the left matrix split into m by k blocks, the right matrix split into k by n blocks
    */
   def multiply(other: DenseVecMatrix, splitMode: (Int, Int, Int)): BlockMatrix = {
+    require(numCols() == other.numRows(), s"dimension mismatch: ${numCols()} vs ${other.numRows()}")
     val (m, k, n) = splitMode
     val thisBlocks = toBlockMatrix(m, k)
     val otherBlocks = other.toBlockMatrix(k, n)
     thisBlocks.multiply(otherBlocks)
   }
 
+  /**
+   * distributed matrix-vector multiply, here I use customized split mode
+   * @param vector
+   * @param splitMode
+   */
   def multiply(vector: DistributedVector, splitMode: (Int, Int)): DistributedVector = {
+    require(numCols() == vector.length, s"dimension mismatch: ${numCols()} vs ${vector.length}")
     val (m, k) = splitMode
     toBlockMatrix(m, k).multiply(vector)
+  }
+
+  /**
+   * distributed matrix-vector multiply, here I use customized split mode and use original Spark APIs
+   * @param vector
+   * @param splitMode
+   */
+  def multiplySpark(vector: DistributedVector, splitMode: (Int, Int)): DistributedVector = {
+    require(numCols() == vector.length, s"dimension mismatch: ${numCols()} vs ${vector.length}")
+    val (m, k) = splitMode
+    toBlockMatrix(m, k).multiplySpark(vector)
+  }
+
+  /**
+   * distributed matrix multiply a local vector, here I use customized split mode
+   * @param vector
+   * @param splitMode
+   */
+  def multiply(vector: BDV[Double], splitMode: Int): DistributedVector = {
+    val m = splitMode
+    toBlockMatrix(m, 1).multiply(vector)
   }
 
   /**
@@ -222,7 +250,7 @@ class DenseVecMatrix(
     val otherBlocks = other.asInstanceOf[DenseVecMatrix].toBlockMatrix(blkNum, blkNum)
 //    thisBlocks.blocks.count()
 //    otherBlocks.blocks.count()
-    thisBlocks.multiply(otherBlocks, blkNum * blkNum * blkNum)
+    thisBlocks.multiplyOriginal(otherBlocks, blkNum * blkNum * blkNum)
   }
 
   /**
@@ -242,7 +270,7 @@ class DenseVecMatrix(
     val otherCollects = other.asInstanceOf[DenseVecMatrix].toBlockMatrix(kSplitNum, nSplitNum)
     thisCollects.blocks.count()
     otherCollects.blocks.count()
-    thisCollects.multiply(otherCollects, cores)
+    thisCollects.multiplyOriginal(otherCollects, cores)
   }
 
   /**

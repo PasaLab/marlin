@@ -36,7 +36,7 @@ trait DistributedMatrix extends Serializable {
   def multiply(d: Double): DistributedMatrix
 
   /** Matrix-matrix multiply another matrix */
-  def multiply(other: DistributedMatrix, cores: Int): BlockMatrix
+//  def multiply(other: DistributedMatrix, cores: Int): BlockMatrix
 
   /** Element-wise divide another element */
   def divide(d: Double): DistributedMatrix

@@ -161,23 +161,23 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
     assert(mat.getSubMatrix(1, 2, 1, 2).toBreeze() === sub1212)
   }
 
-  test("DenseVecMatrix multiply a DenseVecMatrix in CARMA-approach") {
-    val mat = new DenseVecMatrix(indexRows)
-    val result = mat.multiplyCarma(mat, 2)
-    val blkSeq = result.blocks.collect().toSeq
-    assert(blkSeq.contains(new BlockID(0, 0), BDM((11.0, 10.0), (23.0, 24.0), (7.0, 11.0), (6.0, 7.0))))
-    assert(blkSeq.contains(new BlockID(0, 1), BDM((9.0, 8.0), (25.0, 26.0), (15.0, 19.0), (8.0, 9.0))))
-  }
-
-  test("DenseVecMatrix multiply a DenseVecMatrix in block-approach") {
-    val mat = new DenseVecMatrix(indexRows)
-    val result = mat.multiplyHama(mat, 2)
-    val blkSeq = result.blocks.collect().toSeq
-    assert(blkSeq.contains(new BlockID(0, 0), BDM((11.0, 10.0), (23.0, 24.0))))
-    assert(blkSeq.contains(new BlockID(0, 1), BDM((9.0, 8.0), (25.0, 26.0))))
-    assert(blkSeq.contains(new BlockID(1, 0), BDM((7.0, 11.0), (6.0, 7.0))))
-    assert(blkSeq.contains(new BlockID(1, 1), BDM((15.0, 19.0), (8.0, 9.0))))
-  }
+//  test("DenseVecMatrix multiply a DenseVecMatrix in CARMA-approach") {
+//    val mat = new DenseVecMatrix(indexRows)
+//    val result = mat.multiplyCarma(mat, 2)
+//    val blkSeq = result.blocks.collect().toSeq
+//    assert(blkSeq.contains(new BlockID(0, 0), BDM((11.0, 10.0), (23.0, 24.0), (7.0, 11.0), (6.0, 7.0))))
+//    assert(blkSeq.contains(new BlockID(0, 1), BDM((9.0, 8.0), (25.0, 26.0), (15.0, 19.0), (8.0, 9.0))))
+//  }
+//
+//  test("DenseVecMatrix multiply a DenseVecMatrix in block-approach") {
+//    val mat = new DenseVecMatrix(indexRows)
+//    val result = mat.multiplyHama(mat, 2)
+//    val blkSeq = result.blocks.collect().toSeq
+//    assert(blkSeq.contains(new BlockID(0, 0), BDM((11.0, 10.0), (23.0, 24.0))))
+//    assert(blkSeq.contains(new BlockID(0, 1), BDM((9.0, 8.0), (25.0, 26.0))))
+//    assert(blkSeq.contains(new BlockID(1, 0), BDM((7.0, 11.0), (6.0, 7.0))))
+//    assert(blkSeq.contains(new BlockID(1, 1), BDM((15.0, 19.0), (8.0, 9.0))))
+//  }
 
   test("DenseVecMatrix multiply a DenseVecMatrix, and select broadcast-approach") {
     val mat = new DenseVecMatrix(indexRows)
@@ -187,27 +187,27 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
     assert(blkSeq.contains(new BlockID(1, 0), BDM((7.0, 11.0, 15.0, 19.0), (6.0, 7.0, 8.0, 9.0))))
   }
 
-  test("multiply a BlockMatrix") {
-    val mat = new DenseVecMatrix(indexRows)
-    val blkMat = new BlockMatrix(blocks)
-    val result = mat.multiply(blkMat, 2)
-    val blkSeq = result.blocks.collect().toSeq
-    assert(blkSeq.contains(new BlockID(0, 0), BDM((11.0, 10.0, 9.0, 8.0), (23.0, 24.0, 25.0, 26.0))))
-    assert(blkSeq.contains(new BlockID(1, 0), BDM((7.0, 11.0, 15.0, 19.0), (6.0, 7.0, 8.0, 9.0))))
-
-    val ma = new BlockMatrix(blocks)
-    val result2 = ma.multiply(ma, 2)
-    val blkSeq2 = result2.blocks.collect().toSeq
-    assert(blkSeq2.contains(new BlockID(0, 0), BDM((11.0, 10.0), (23.0, 24.0))))
-    assert(blkSeq2.contains(new BlockID(0, 1), BDM((9.0, 8.0), (25.0, 26.0))))
-    assert(blkSeq2.contains(new BlockID(1, 0), BDM((7.0, 11.0), (6.0, 7.0))))
-    assert(blkSeq2.contains(new BlockID(1, 1), BDM((15.0, 19.0), (8.0, 9.0))))
-  }
+//  test("multiply a BlockMatrix") {
+//    val mat = new DenseVecMatrix(indexRows)
+//    val blkMat = new BlockMatrix(blocks)
+//    val result = mat.multiply(blkMat, 2)
+//    val blkSeq = result.blocks.collect().toSeq
+//    assert(blkSeq.contains(new BlockID(0, 0), BDM((11.0, 10.0, 9.0, 8.0), (23.0, 24.0, 25.0, 26.0))))
+//    assert(blkSeq.contains(new BlockID(1, 0), BDM((7.0, 11.0, 15.0, 19.0), (6.0, 7.0, 8.0, 9.0))))
+//
+//    val ma = new BlockMatrix(blocks)
+//    val result2 = ma.multiply(ma, 2)
+//    val blkSeq2 = result2.blocks.collect().toSeq
+//    assert(blkSeq2.contains(new BlockID(0, 0), BDM((11.0, 10.0), (23.0, 24.0))))
+//    assert(blkSeq2.contains(new BlockID(0, 1), BDM((9.0, 8.0), (25.0, 26.0))))
+//    assert(blkSeq2.contains(new BlockID(1, 0), BDM((7.0, 11.0), (6.0, 7.0))))
+//    assert(blkSeq2.contains(new BlockID(1, 1), BDM((15.0, 19.0), (8.0, 9.0))))
+//  }
 
   test("BlockMatrix multiply a DenseVecMatrix and choose to run broadcast") {
     val ma = new BlockMatrix(blocks)
     val denVecMat = new DenseVecMatrix(indexRows)
-    val result = ma.multiply(denVecMat, 2)
+    val result = ma.multiplyOriginal(denVecMat, 2)
     val blkSeq = result.blocks.collect().toSeq
     assert(blkSeq.contains(new BlockID(0, 0), BDM((11.0, 10.0, 9.0, 8.0), (23.0, 24.0, 25.0, 26.0))))
     assert(blkSeq.contains(new BlockID(1, 0), BDM((7.0, 11.0, 15.0, 19.0), (6.0, 7.0, 8.0, 9.0))))
@@ -327,7 +327,7 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
    }
    */
 
-  test("distributed vector multiplication") {
+  test(" BLAS1 distributed vector multiplication") {
     val vectors = Seq(
       (0, BDV(1.0, 2.0)),
       (1, BDV(3.0, 4.0)))
@@ -344,5 +344,18 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
     assert(matResult.right.get.toBreeze() === expected)
     assert(doubleResult.left.get === 30.0)
     assert(doubleResultLocal.left.get === 30.0)
+  }
+
+  test("BLAS2 matrix-vector multiplication") {
+    val mat = new DenseVecMatrix(indexRows)
+    val vector: BDV[Double] = BDV(1.0, 2.0, 3.0, 4.0)
+    val distVector = DistributedVector.fromVector(sc, vector, 2)
+    val matLocalVec = mat.multiply(vector, 2)
+    val matDistVec = mat.multiply(distVector, (2, 2))
+    val matDistVecSpark = mat.multiplySpark(distVector, (2, 2))
+    val expected: BDV[Double] = BDV(20.0, 40.0, 10.0, 10.0)
+    assert(matLocalVec.toBreeze() === expected)
+    assert(matDistVec.toBreeze() === expected)
+    assert(matDistVecSpark.toBreeze() === expected)
   }
 }

@@ -74,7 +74,7 @@ object MTUtils {
       numSplits: Int,
       distribution: RandomDataGenerator[Double] = new UniformGenerator(0.0, 1.0)): DistributedVector = {
     val parts = RandomRDDs.randomDistVectorRDD(sc, distribution, length, numSplits)
-    new DistributedVector(parts)
+    new DistributedVector(parts, length, numSplits)
   }
 
   /**
