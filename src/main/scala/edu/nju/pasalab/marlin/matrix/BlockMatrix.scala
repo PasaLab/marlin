@@ -201,7 +201,7 @@ class BlockMatrix(
       val colLen = rows(0)._2.size
       val mat = BDM.zeros[Double](rowLen, colLen)
       for( r <- rows){
-        mat(r._1.toInt, ::) := r._2.toBreeze.t
+        mat(r._1.toInt, ::) := r._2.t
       }
       iter.map{case(blkId, block) =>
         (blkId, (block * mat).asInstanceOf[BDM[Double]])
@@ -477,7 +477,7 @@ class BlockMatrix(
     val splits = blocks.mapPartitions(parts =>
     parts.map{ case(blkID, blk) =>
       (blkID.row, blk * vector.value)
-    }, preservesPartitioning = true)
+    })
     new DistributedVector(splits)
   }
 
@@ -751,14 +751,14 @@ class BlockMatrix(
     }
   }
 
-  /**
-   * save the matrix in sequencefile in DenseVecMatrix format
-   *
-   * @param path the path to store in HDFS
-   */
-  def saveSequenceFile(path: String): Unit = {
-    toDenseVecMatrix().saveSequenceFile(path)
-  }
+//  /**
+//   * save the matrix in sequencefile in DenseVecMatrix format
+//   *
+//   * @param path the path to store in HDFS
+//   */
+//  def saveSequenceFile(path: String): Unit = {
+//    toDenseVecMatrix().saveSequenceFile(path)
+//  }
 
   /**
    * transform the BlockMatrix to DenseVecMatrix
@@ -769,20 +769,20 @@ class BlockMatrix(
     val mostBlockRowLen = math.ceil( numRows().toDouble / numBlksByRow().toDouble).toInt
     val mostBlockColLen = math.ceil( numCols().toDouble / numBlksByCol().toDouble).toInt
     // blocks.cache()
-    val result = blocks.flatMap( t => {
-      val smRows = t._2.rows
-      val smCols = t._2.cols
-      val array = t._2.data
+    val result = blocks.flatMap{ case(id, blk) => {
+      val smRows = blk.rows
+      val smCols = blk.cols
+      val array = blk.data
       val arrayBuf = Array.ofDim[(Long, (Int, Array[Double]))](smRows)
       for ( i <- 0 until smRows){
         val tmp = Array.ofDim[Double](smCols)
         for (j <- 0 until tmp.length){
           tmp(j) = array(j * smRows + i)
         }
-        arrayBuf(i) = ( (t._1.row * mostBlockRowLen + i).toLong, (t._1.column, tmp) )
+        arrayBuf(i) = ( (id.row * mostBlockRowLen + i).toLong, (id.column, tmp) )
       }
       arrayBuf
-    }).groupByKey()
+    }}.groupByKey()
       .map(input => {
       val array = Array.ofDim[Double](numCols().toInt)
       for (it <- input._2) {
@@ -791,7 +791,7 @@ class BlockMatrix(
           array( colStart + i ) = it._2(i)
         }
       }
-      (input._1 , Vectors.dense(array))
+      (input._1 , BDV(array))
     })
     new DenseVecMatrix(result)
   }

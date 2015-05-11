@@ -27,7 +27,7 @@ object RandomRDDs {
       numRows: Long,
       numCols: Int,
       numPartitions: Int = 0,
-      seed: Long = System.nanoTime()): RDD[(Long, DenseVector)] = {
+      seed: Long = System.nanoTime()): RDD[(Long, BDV[Double])] = {
     new RandomDenVecRDD(
       sc, numRows, numCols, numPartitionsOrDefault(sc, numPartitions), generator, seed)
   }
@@ -52,7 +52,7 @@ object RandomRDDs {
   def zerosDenVecRDD(sc: SparkContext,
       numRows: Long,
       numCols: Int,
-      numPartitions: Int = 0): RDD[(Long, DenseVector)] = {
+      numPartitions: Int = 0): RDD[(Long, BDV[Double])] = {
 
     new RandomDenVecRDD(
       sc, numRows, numCols, numPartitionsOrDefault(sc, numPartitions), new ZerosGenerator())
@@ -70,7 +70,7 @@ object RandomRDDs {
   def onesDenVecRDD(sc: SparkContext,
       numRows: Long,
       numCols: Int,
-      numPartitions: Int = 0): RDD[(Long, DenseVector)] = {
+      numPartitions: Int = 0): RDD[(Long, BDV[Double])] = {
 
     new RandomDenVecRDD(
       sc, numRows, numCols, numPartitionsOrDefault(sc, numPartitions), new OnesGenerator())

@@ -5,7 +5,7 @@ import java.nio.ByteBuffer
 import scala.util.hashing.MurmurHash3
 import scala.{specialized => spec}
 
-import breeze.linalg.{DenseMatrix => BDM}
+import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV}
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 
@@ -219,7 +219,7 @@ object MTUtils {
       for ((i, v) <- indicesAndValues){
         array.update(i, v)
       }
-      (index, new DenseVector(array))
+      (index, BDV(array))
     }
     new DenseVecMatrix(rows, 0L, vectorLen)
   }
@@ -243,24 +243,24 @@ object MTUtils {
       val e = t.split(":")
       val rowIndex = e(0).toLong
       val array = e(1).split(",\\s?|\\s+").map(_.toDouble)
-      val vec = Vectors.dense(array)
+      val vec = BDV(array)
       (rowIndex,vec)
     })
     new DenseVecMatrix(rows)
   }
 
-  /**
-   * Load DenseVecMatrix from sequence file, the original sequenceFile is key-value pair stored,
-   * key is index in `Long` type, value is `DenseVector`
-   * s
-   *@param sc the running SparkContext
-   * @param path the path where store the matrix
-   * @param minPartitions the min num of partitions of the matrix to load in Spark
-   */
-  def loadMatrixSeqFile(sc: SparkContext, path: String, minPartitions: Int = 0): DenseVecMatrix = {
-    val result = sc.sequenceFile[Long, DenseVector](path, numPartitionsOrDefault(sc, minPartitions))
-    new DenseVecMatrix(result)
-  }
+//  /**
+//   * Load DenseVecMatrix from sequence file, the original sequenceFile is key-value pair stored,
+//   * key is index in `Long` type, value is `DenseVector`
+//   * s
+//   *@param sc the running SparkContext
+//   * @param path the path where store the matrix
+//   * @param minPartitions the min num of partitions of the matrix to load in Spark
+//   */
+//  def loadMatrixSeqFile(sc: SparkContext, path: String, minPartitions: Int = 0): DenseVecMatrix = {
+//    val result = sc.sequenceFile[Long, DenseVector](path, numPartitionsOrDefault(sc, minPartitions))
+//    new DenseVecMatrix(result)
+//  }
 
 
   /**
@@ -305,7 +305,7 @@ object MTUtils {
       val lines = t._2.split("\n")
       lines.map( l =>{
         val content = l.split(":")
-        ( content(0).toLong, Vectors.dense( content(1).split(",\\s?|\\s+").map(_.toDouble) ))
+        ( content(0).toLong, BDV(content(1).split(",\\s?|\\s+").map(_.toDouble) ))
       })
     })
     new DenseVecMatrix(rows)
@@ -347,7 +347,7 @@ object MTUtils {
    */
   def arrayToMatrix(sc:SparkContext , array: Array[Array[Double]] , partitions: Int = 2): DenseVecMatrix ={
     new DenseVecMatrix( sc.parallelize(array.zipWithIndex
-      .map{case(t,i)  => (i.toLong, Vectors.dense(t)) },partitions) )
+      .map{case(t,i)  => (i.toLong, BDV(t)) },partitions) )
   }
 
   /**
@@ -432,7 +432,7 @@ object MTUtils {
       matrix match {
         case vecMatrix: DenseVecMatrix => {
           val result = vecMatrix.rows.map( t =>
-            (t._1, Vectors.dense(List.fill(times)(t._2.toArray).flatten.toArray)) )
+            (t._1, BDV(List.fill(times)(t._2.toArray).flatten.toArray)) )
           new DenseVecMatrix(result, vecMatrix.numRows(), vecMatrix.numCols() * times)
         }
         case blockMatrix: BlockMatrix => {

@@ -1,6 +1,6 @@
 package edu.nju.pasalab.marlin.examples
 
-import breeze.linalg.{DenseMatrix => BDM}
+import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV}
 import com.esotericsoftware.kryo.Kryo
 import org.apache.spark.serializer.KryoRegistrator
 import org.apache.spark.{SparkContext, SparkConf}
@@ -20,17 +20,17 @@ object MatrixMultiply {
         "+ optional parameter{<broadcast threshold>}")
       System.exit(-1)
     }
-    val conf = new SparkConf()//.setMaster("local[4]").setAppName("matrix multiply")
+    val conf = new SparkConf().setMaster("local[4]").setAppName("matrix multiply")
     /**if the matrices are too large, you can set below properties to tune the Spark well*/
-    conf.set("spark.storage.memoryFraction", "0.4")
-    conf.set("spark.eventLog.enabled", "true")
-    conf.set("spark.storage.blockManagerTimeoutIntervalMs", "80000")
-    conf.set("spark.default.parallelism", "128")
-    conf.set("spark.shuffle.file.buffer.kb", "200")
-    conf.set("spark.akka.threads", "8")
+//    conf.set("spark.storage.memoryFraction", "0.4")
+//    conf.set("spark.eventLog.enabled", "true")
+//    conf.set("spark.storage.blockManagerTimeoutIntervalMs", "80000")
+//    conf.set("spark.default.parallelism", "128")
+//    conf.set("spark.shuffle.file.buffer.kb", "200")
+//    conf.set("spark.akka.threads", "8")
 //    conf.set("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
-//    conf.set("spark.kryo.registrator", "edu.nju.pasalab.marlin.examples.MyRegistrator")
-    conf.set("spark.kryoserializer.buffer.max.mb", "100")
+    conf.set("spark.kryo.registrator", "edu.nju.pasalab.marlin.examples.MyRegistrator")
+//    conf.set("spark.kryoserializer.buffer.max.mb", "100")
 //    conf.set("spark.local.dir", "/data/spark_dir")
 //    conf.set("spark.shuffle.consolidateFiles", "true")
 
@@ -48,7 +48,7 @@ object MatrixMultiply {
     }else { args(5).toInt }
     val result = ma.multiply(mb, args(3).toInt)
     println("Result RDD counts: " + result.blocks.count())
-    println("start store the result matrix in DenseVecMatrix type")
+//    println("start store the result matrix in DenseVecMatrix type")
 //    result.saveToFileSystem(args(4))
 //    result.print()
     sc.stop()
@@ -60,5 +60,6 @@ class MyRegistrator extends KryoRegistrator{
   override def registerClasses(kryo: Kryo){
     kryo.register(classOf[BlockID])
     kryo.register(classOf[BDM[Double]])
+    kryo.register(classOf[BDV[Double]])
   }
 }

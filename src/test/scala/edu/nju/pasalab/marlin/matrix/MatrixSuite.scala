@@ -12,16 +12,16 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
   val r = 2
   val c = 2
   val data = Seq(
-    (0L, Vectors.dense(0.0, 1.0, 2.0, 3.0)),
-    (2L, Vectors.dense(3.0, 2.0, 1.0, 0.0)),
-    (3L, Vectors.dense(1.0, 1.0, 1.0, 1.0)),
-    (1L, Vectors.dense(2.0, 3.0, 4.0, 5.0))).map(t => (t._1, t._2))
+    (0L, BDV(0.0, 1.0, 2.0, 3.0)),
+    (2L, BDV(3.0, 2.0, 1.0, 0.0)),
+    (3L, BDV(1.0, 1.0, 1.0, 1.0)),
+    (1L, BDV(2.0, 3.0, 4.0, 5.0))).map(t => (t._1, t._2))
   val blks = Seq(
     (new BlockID(0, 0), BDM((0.0, 1.0), (2.0, 3.0))),
     (new BlockID(0, 1), BDM((2.0, 3.0), (4.0, 5.0))),
     (new BlockID(1, 0), BDM((3.0, 2.0), (1.0, 1.0))),
     (new BlockID(1, 1), BDM((1.0, 0.0), (1.0, 1.0)))).map(t => (t._1, t._2))
-  var indexRows: RDD[(Long, DenseVector)] = _
+  var indexRows: RDD[(Long, BDV[Double])] = _
   var blocks: RDD[(BlockID, BDM[Double])] = _
 
   override def beforeAll() {
@@ -42,7 +42,7 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
   }
 
   test("empty rows") {
-    val rows = sc.parallelize(Seq[(Long, DenseVector)](), 1)
+    val rows = sc.parallelize(Seq[(Long, BDV[Double])](), 1)
     val mat = new DenseVecMatrix(rows)
     intercept[RuntimeException] {
       mat.numRows()
@@ -89,13 +89,14 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
   test("to DenseVecMatrix") {
     val ma = new BlockMatrix(blocks)
     val denVecMat = ma.toDenseVecMatrix()
+//    denVecMat.print()
     assert(ma.numRows() == denVecMat.numRows())
     assert(ma.numCols() == denVecMat.numCols())
     val rowSeq = denVecMat.rows.collect().toSeq
-    assert(rowSeq.contains((0L, Vectors.dense(0.0, 1.0, 2.0, 3.0))))
-    assert(rowSeq.contains((1L, Vectors.dense(2.0, 3.0, 4.0, 5.0))))
-    assert(rowSeq.contains((2L, Vectors.dense(3.0, 2.0, 1.0, 0.0))))
-    assert(rowSeq.contains((3L, Vectors.dense(1.0, 1.0, 1.0, 1.0))))
+    assert(rowSeq.contains((0L, BDV(0.0, 1.0, 2.0, 3.0))))
+    assert(rowSeq.contains((1L, BDV(2.0, 3.0, 4.0, 5.0))))
+    assert(rowSeq.contains((2L, BDV(3.0, 2.0, 1.0, 0.0))))
+    assert(rowSeq.contains((3L, BDV(1.0, 1.0, 1.0, 1.0))))
   }
 
   test("Matrix-matrix and element-wise addition/subtract; element-wise multiply and divide") {
@@ -187,6 +188,22 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
     assert(blkSeq.contains(new BlockID(1, 0), BDM((7.0, 11.0, 15.0, 19.0), (6.0, 7.0, 8.0, 9.0))))
   }
 
+  test("DenseVecMatrix multiply a local matrix"){
+    val mat = new DenseVecMatrix(indexRows)
+    val local = BDM(
+      (0.0, 1.0, 2.0, 3.0),
+      (2.0, 3.0, 4.0, 5.0),
+      (3.0, 2.0, 1.0, 0.0),
+      (1.0, 1.0, 1.0, 1.0))
+    val expected = BDM(
+      (11.0, 10.0, 9.0, 8.0),
+      (23.0, 24.0, 25.0, 26.0),
+      (7.0, 11.0, 15.0, 19.0),
+      (6.0, 7.0, 8.0, 9.0))
+    val result = mat.multiplyByRow(local)
+    assert(result.toBreeze() === expected)
+  }
+
 //  test("multiply a BlockMatrix") {
 //    val mat = new DenseVecMatrix(indexRows)
 //    val blkMat = new BlockMatrix(blocks)
@@ -230,9 +247,9 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
 
   test("DenseVecMatrix lu decompose") {
     val row = Seq(
-      (0L, Vectors.dense(1.0, 2.0, 3.0)),
-      (1L, Vectors.dense(4.0, 5.0, 6.0)),
-      (2L, Vectors.dense(7.0, 8.0, 0.0))).map(t => (t._1, t._2))
+      (0L, BDV(1.0, 2.0, 3.0)),
+      (1L, BDV(4.0, 5.0, 6.0)),
+      (2L, BDV(7.0, 8.0, 0.0))).map(t => (t._1, t._2))
     val mat = new DenseVecMatrix(sc.parallelize(row, 2))
     val (l, u) = mat.luDecompose()
     //    val (l, u) = mat.luDecompose2(4)
@@ -279,9 +296,9 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
       */
 
     val row = Seq(
-      (0L, Vectors.dense(0.0, 0.0, 1.0)),
-      (1L, Vectors.dense(0.0, 1.0, 0.0)),
-      (2L, Vectors.dense(1.0, 0.0, 0.0))).map(t => (t._1, t._2))
+      (0L, BDV(0.0, 0.0, 1.0)),
+      (1L, BDV(0.0, 1.0, 0.0)),
+      (2L, BDV(1.0, 0.0, 0.0))).map(t => (t._1, t._2))
     val mat = new DenseVecMatrix(sc.parallelize(row, 2))
     val inverse = mat.inverse()
     val identity = BDM(

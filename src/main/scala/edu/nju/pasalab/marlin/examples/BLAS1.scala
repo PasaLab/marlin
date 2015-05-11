@@ -1,6 +1,10 @@
 package edu.nju.pasalab.marlin.examples
 
+import breeze.linalg.{DenseMatrix => BDM}
+import com.esotericsoftware.kryo.Kryo
+import edu.nju.pasalab.marlin.matrix.BlockID
 import edu.nju.pasalab.marlin.utils.MTUtils
+import org.apache.spark.serializer.KryoRegistrator
 import org.apache.spark.{SparkContext, SparkConf}
 
 
@@ -15,6 +19,7 @@ object BLAS1 {
       System.exit(1)
     }
     val conf = new SparkConf()
+    conf.set("spark.kryo.registrator", "edu.nju.pasalab.marlin.examples.BLAS1Registrator")
     val sc = new SparkContext(conf)
     mode match {
       case "local" => println("multiply the two distributed vectors in local environment")
@@ -29,5 +34,12 @@ object BLAS1 {
     println(s"the vector multiply result: ${result.left.get}, in mode $mode")
     println(s"time used: ${(System.currentTimeMillis() - t0)} milliseconds, in mode $mode")
     sc.stop()
+  }
+}
+
+class BLAS1Registrator extends KryoRegistrator{
+  override def registerClasses(kryo: Kryo){
+    kryo.register(classOf[BlockID])
+    kryo.register(classOf[BDM[Double]])
   }
 }

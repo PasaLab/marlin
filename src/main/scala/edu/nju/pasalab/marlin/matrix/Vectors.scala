@@ -137,6 +137,14 @@ object Vectors {
 }
 
 /**
+ * new densevector directly extends from breeze.linalg.DenseVector
+ * @param data
+ */
+class NewDenseVector(data: Array[Double]) extends BDV(data) {
+  override def toString(): String = data.mkString(",")
+}
+
+/**
  * A dense vector represented by a value array.
  */
 class DenseVector extends Vector  {

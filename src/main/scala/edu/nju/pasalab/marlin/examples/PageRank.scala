@@ -21,7 +21,7 @@ object PageRank {
         for( l <- links){
           vector(l - 1) = 1.0 / links.size
         }
-      (page - 1, Vectors.dense(vector))
+      (page - 1, BDV(vector))
     }
     new DenseVecMatrix(links, linkNum.toLong, linkNum.toLong)
   }

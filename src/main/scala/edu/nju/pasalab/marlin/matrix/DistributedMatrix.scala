@@ -63,7 +63,7 @@ trait DistributedMatrix extends Serializable {
   def saveToFileSystem(path: String)
 
   /** Save the matrix to filesystem in binary sequence format */
-  def saveSequenceFile(path: String)
+//  def saveSequenceFile(path: String)
 
   /** Print the matrix out, if the matrix is too large, it will print part */
   def print()

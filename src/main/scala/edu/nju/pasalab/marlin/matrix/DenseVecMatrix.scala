@@ -6,6 +6,7 @@ import java.util.Calendar
 import edu.nju.pasalab.marlin.ml.ALSHelp
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{ FileSystem, Path }
+import org.apache.spark.annotation.Experimental
 import org.apache.spark.broadcast.JoinBroadcast
 
 import scala.collection.mutable.ArrayBuffer
@@ -22,17 +23,7 @@ import org.apache.spark.storage.{JoinBroadcastBlockId, StorageLevel}
 
 import edu.nju.pasalab.marlin.utils.MTUtils
 
-import breeze.linalg.{
-  DenseMatrix => BDM,
-  DenseVector => BDV,
-  axpy => brzAxpy,
-  svd => brzSvd,
-  LU => brzLU,
-  inv => brzInv,
-  cholesky => brzCholesky,
-  upperTriangular,
-  lowerTriangular
-}
+import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV, axpy => brzAxpy, svd => brzSvd, LU => brzLU, inv => brzInv, cholesky => brzCholesky, Transpose, upperTriangular, lowerTriangular}
 import breeze.numerics.{ sqrt => brzSqrt }
 import com.github.fommil.netlib.BLAS.{ getInstance => blas }
 
@@ -43,16 +34,16 @@ import scala.language.implicitConversions
 import scala.util.Random
 
 class DenseVecMatrix(
-  private[marlin] val rows: RDD[(Long, DenseVector)],
+  private[marlin] val rows: RDD[(Long, BDV[Double])],
   private var nRows: Long,
   private var nCols: Long) extends DistributedMatrix with Logging {
 
   private var resultCols: Long = 0
-  def this(rows: RDD[(Long, DenseVector)]) = this(rows, 0L, 0)
+  def this(rows: RDD[(Long, BDV[Double])]) = this(rows, 0L, 0)
 
   def this(sc: SparkContext, array: Array[Array[Double]], partitions: Int = 2) {
     this(sc.parallelize(array.zipWithIndex.
-      map { case (t, i) => (i.toLong, Vectors.dense(t)) }, partitions))
+      map { case (t, i) => (i.toLong, BDV(t)) }, partitions))
   }
 
   override def numCols(): Long = {
@@ -81,7 +72,7 @@ class DenseVecMatrix(
     rows.collect().foreach {
       case (rowIndex, vector) =>
         val i = rowIndex.toInt
-        vector.toBreeze.activeIterator.foreach {
+        vector.activeIterator.foreach {
           case (j, v) =>
             mat(i, j) = v
         }
@@ -125,6 +116,20 @@ class DenseVecMatrix(
   }
 
   /**
+   * matrix-matrix multiply, here I use customized split method
+   *
+   * @param other
+   * @param splitMode the left matrix split into m by k blocks, the right matrix split into k by n blocks
+   */
+  def multiplySpark(other: DenseVecMatrix, splitMode: (Int, Int, Int)): BlockMatrix = {
+    require(numCols() == other.numRows(), s"dimension mismatch: ${numCols()} vs ${other.numRows()}")
+    val (m, k, n) = splitMode
+    val thisBlocks = toBlockMatrix(m, k)
+    val otherBlocks = other.toBlockMatrix(k, n)
+    thisBlocks.multiplySpark(otherBlocks)
+  }
+
+  /**
    * distributed matrix-vector multiply, here I use customized split mode
    * @param vector
    * @param splitMode
@@ -154,6 +159,25 @@ class DenseVecMatrix(
   def multiply(vector: BDV[Double], splitMode: Int): DistributedVector = {
     val m = splitMode
     toBlockMatrix(m, 1).multiply(vector)
+  }
+
+  /**
+   * multiply a local vector without transform the DenseVecMatrix to BlockMatrix
+   * @param vector
+   */
+  def multiplyNoBLock(vector: BDV[Double]): BDV[Double] = {
+    val bvec = rows.context.broadcast(vector)
+    val data = rows.mapPartitions{iter =>
+      val vec = bvec.value
+      iter.map{ case(id, v) =>
+        (id.toInt,  v.t * vec)
+      }
+    }.collect()
+    val result = BDV.zeros[Double](data.length)
+    for ((id, v) <- data) {
+      result(id) = v
+    }
+    result
   }
 
   /**
@@ -218,7 +242,7 @@ class DenseVecMatrix(
     other match {
       case that: DenseVecMatrix => {
         val result = rows.join(that.rows).map(t => {
-          (t._1, new DenseVector(t._2._1.toArray ++: t._2._2.toArray))
+          (t._1, BDV(t._2._1.toArray ++: t._2._2.toArray))
         })
         new DenseVecMatrix(result, numRows(), numCols() + that.numCols())
       }
@@ -510,12 +534,12 @@ class DenseVecMatrix(
         val uBro = rows.sparkContext.broadcast(u)
         val uDense = rows.mapPartitions(iter => {
           iter.map(t =>
-            (t._1, Vectors.dense(uBro.value(::, t._1.toInt).toArray)))
+            (t._1, BDV(uBro.value(::, t._1.toInt).toArray)))
         })
         val lBro = rows.sparkContext.broadcast(l)
         val lDense = rows.mapPartitions(iter => {
           iter.map(t =>
-            (t._1, Vectors.dense(lBro.value(::, t._1.toInt).toArray)))
+            (t._1, BDV(lBro.value(::, t._1.toInt).toArray)))
         })
         val pArray = (0 until lu._2.length).toArray
         for (i <- 0 until lu._2.length) {
@@ -547,7 +571,7 @@ class DenseVecMatrix(
               }
               array(j) = array(j) / u.value.apply(j, j)
             }
-            (t._1, Vectors.dense(array))
+            (t._1, BDV(array))
           }
         })
         var lMatrix21 = new DenseVecMatrix(lMatrix21Rdd, numSubRows2, numSubRows)
@@ -565,7 +589,7 @@ class DenseVecMatrix(
               }
               array(j) = array(j) / l.value.apply(j, j)
             }
-            (t._1, Vectors.dense(array))
+            (t._1, BDV(array))
           }
         })
         val uMatrix12 = new DenseVecMatrix(uMatrix12Rdd, numSubRows2, numSubRows).transpose().toDenseVecMatrix()
@@ -582,13 +606,13 @@ class DenseVecMatrix(
         lMatrix21 = lMatrix21.rowExchange(pMatrix22)
 
         val lUpper = lMatrix11.rows
-          .map(t => (t._1, Vectors.fromBreeze(BDV.vertcat(t._2.toBreeze.asInstanceOf[BDV[Double]], BDV.zeros[Double](numSubRows2)))))
+          .map(t => (t._1, (BDV.vertcat(t._2.asInstanceOf[BDV[Double]], BDV.zeros[Double](numSubRows2)))))
         val lLower = lMatrix21.rows
           .join(lMatrix22.rows)
           .map { t =>
           val array1 = t._2._1.toArray
           val array2 = t._2._2.toArray
-          (t._1 + numSubRows, Vectors.dense(array1 ++ array2))
+          (t._1 + numSubRows, BDV(array1 ++ array2))
         }
         val LMatrix = new DenseVecMatrix(lUpper.union(lLower), numRows(), numRows())
 
@@ -597,10 +621,10 @@ class DenseVecMatrix(
           .map { t =>
           val array1 = t._2._1.toArray
           val array2 = t._2._2.toArray
-          (t._1, Vectors.dense(array1 ++ array2))
+          (t._1, BDV(array1 ++ array2))
         }
         val ULower = uMatrix22.rows
-          .map(t => (t._1 + numSubRows, Vectors.fromBreeze(BDV.vertcat(BDV.zeros[Double](numSubRows), t._2.toBreeze.asInstanceOf[BDV[Double]]))))
+          .map(t => (t._1 + numSubRows, (BDV.vertcat(BDV.zeros[Double](numSubRows), t._2.asInstanceOf[BDV[Double]]))))
 
         val UMatrix = new DenseVecMatrix(UUpper.union(ULower), numRows(), numRows())
 
@@ -674,7 +698,7 @@ class DenseVecMatrix(
       for (k <- 0 until v.length) {
         array(k) = v.apply(k)
       }
-      (t._1, Vectors.dense(array))
+      (t._1, BDV(array))
     }))
 
     val num = iterations.toInt
@@ -696,7 +720,7 @@ class DenseVecMatrix(
           if (t._1.toInt >= i) {
             val vec = t._2.toArray
             vec.update(i, broadLV.value.apply(t._1.toInt))
-            (t._1, Vectors.dense(vec))
+            (t._1, BDV(vec))
           } else t
         }
       }, true)
@@ -711,7 +735,7 @@ class DenseVecMatrix(
             for (k <- 0 until vec.length) {
               vec.update(k, vec.apply(k) + mfactor * broadVec.value.apply(k))
             }
-            (t._1, Vectors.dense(vec))
+            (t._1, BDV(vec))
           } else t
         })
       }, true)
@@ -769,7 +793,7 @@ class DenseVecMatrix(
         val lBro = rows.sparkContext.broadcast(l)
         val lDense = rows.mapPartitions(iter => {
           iter.map(t =>
-            (t._1, Vectors.dense(lBro.value(::, t._1.toInt).toArray)))
+            (t._1, BDV(lBro.value(::, t._1.toInt).toArray)))
         })
         new DenseVecMatrix(lDense, numRows, numRows)
       }
@@ -797,14 +821,14 @@ class DenseVecMatrix(
               }
               array(j) = array(j) / lTranspose.value.apply(j, j)
             }
-            (t._1, Vectors.dense(array))
+            (t._1, BDV(array))
           }
         })
         val lMatrix21 = new DenseVecMatrix(lMatrix21Rdd, numSubRows2, numSubRows)
 
         val lDense = subMatrix11.rows.mapPartitions(iter => {
           iter.map(t =>
-            (t._1, Vectors.dense(lTranspose.value(::, t._1.toInt).toArray)))
+            (t._1, BDV(lTranspose.value(::, t._1.toInt).toArray)))
         })
         val lMatrix11 = new DenseVecMatrix(lDense, numRows, numRows)
 
@@ -819,14 +843,14 @@ class DenseVecMatrix(
           .subtract(lMatrix21.multiply(lMatrix21.transpose(), cores)).blockCholeskyDecompose("auto")
 
         val lUpper = lMatrix11.rows
-          .map(t => (t._1, Vectors.fromBreeze(BDV.vertcat(t._2.toBreeze.asInstanceOf[BDV[Double]], BDV.zeros[Double](numSubRows2)))))
+          .map(t => (t._1, (BDV.vertcat(t._2.asInstanceOf[BDV[Double]], BDV.zeros[Double](numSubRows2)))))
 
         val lLower = lMatrix21.rows
           .join(lMatrix22.rows)
           .map { t =>
           val array1 = t._2._1.toArray
           val array2 = t._2._2.toArray
-          (t._1 + numSubRows, Vectors.dense(array1 ++ array2))
+          (t._1 + numSubRows, BDV(array1 ++ array2))
         }
         val LMatrix = new DenseVecMatrix(lUpper.union(lLower), numRows(), numRows())
         LMatrix
@@ -875,7 +899,7 @@ class DenseVecMatrix(
       for (k <- 0 until v.length) {
         array(k) = v.apply(k)
       }
-      (t._1, Vectors.dense(array))
+      (t._1, BDV(array))
     }))
 
     val num = iterations.toInt
@@ -898,7 +922,7 @@ class DenseVecMatrix(
               for (k <- i + 1 until vec.length)
                 vec.update(k, vec(k) - broadColVec.value.apply(t._1.toInt) * broadRowVec.value.apply(k) / c.value)
             }
-            (t._1, Vectors.dense(vec))
+            (t._1, BDV(vec))
           } else t)
       }, true)
       mat = new DenseVecMatrix(result, numRows(), numCols())
@@ -932,7 +956,7 @@ class DenseVecMatrix(
       iter.map{ t =>
         val array = Array.ofDim[Double](numRows().toInt)
         array(bp.value(t._1.toInt)) = 1
-        (t._1, Vectors.dense(array))
+        (t._1, BDV(array))
       }
     })
     val pivot = new DenseVecMatrix(pivotRdd, numRows(), numCols())
@@ -960,7 +984,7 @@ class DenseVecMatrix(
       for (k <- 0 until v.length) {
         array(k) = v.apply(k)
       }
-      (t._1, Vectors.dense(array))
+      (t._1, BDV(array))
     }))
 
     val num = iterations.toInt
@@ -1033,7 +1057,7 @@ class DenseVecMatrix(
           }
           if (t._1.toInt != i)
             vec.update(i, vec(i) / (-c.value))
-          (t._1, Vectors.dense(vec))
+          (t._1, BDV(vec))
         }
       }, true)
       matr = new DenseVecMatrix(result, numRows(), numCols())
@@ -1051,8 +1075,8 @@ class DenseVecMatrix(
     
     val permuMatrix = new DenseVecMatrix(rows.map(t => {
       val array = Array.fill[Double](numCols.toInt)(0)
-      array(permutation(t._1.toInt)) = 1;
-      (t._1, Vectors.dense(array))
+      array(permutation(t._1.toInt)) = 1
+      (t._1, BDV(array))
     }))
 
     matr.multiplyHama(permuMatrix, 2).toDenseVecMatrix()
@@ -1093,7 +1117,7 @@ class DenseVecMatrix(
         val invBro = rows.sparkContext.broadcast(inv)
         val invRdd = rows.mapPartitions(iter => {
           iter.map(t =>
-            (t._1, Vectors.dense(invBro.value(::, t._1.toInt).toArray)))
+            (t._1, BDV(invBro.value(::, t._1.toInt).toArray)))
         })
         (new DenseVecMatrix(invRdd, numRows, numRows))
       }
@@ -1124,7 +1148,7 @@ class DenseVecMatrix(
 
         val inv22Rdd = subMatrix22.rows.mapPartitions(iter => {
           iter.map(t =>
-            (t._1, Vectors.dense(brzInvMatrix22.value(::, t._1.toInt).toArray)))
+            (t._1, BDV(brzInvMatrix22.value(::, t._1.toInt).toArray)))
         })
         val invMatrix22 = (new DenseVecMatrix(inv22Rdd, numSubRows2, numSubRows2))
         /**
@@ -1151,13 +1175,13 @@ class DenseVecMatrix(
 
         val rst = if (form == "lower") {
           val u = invMatrix11.rows
-            .map(t => (t._1, Vectors.fromBreeze(BDV.vertcat(t._2.toBreeze.asInstanceOf[BDV[Double]], BDV.zeros[Double](numSubRows2)))))
+            .map(t => (t._1, (BDV.vertcat(t._2.asInstanceOf[BDV[Double]], BDV.zeros[Double](numSubRows2)))))
           val l = invMatrix.rows
             .join(invMatrix22.rows)
             .map { t =>
             val array1 = t._2._1.toArray
             val array2 = t._2._2.toArray
-            (t._1 + numSubRows, Vectors.dense(array1 ++ array2))
+            (t._1 + numSubRows, BDV(array1 ++ array2))
           }
           (u, l)
         }else {
@@ -1166,10 +1190,10 @@ class DenseVecMatrix(
             .map { t =>
             val array1 = t._2._1.toArray
             val array2 = t._2._2.toArray
-            (t._1, Vectors.dense(array1 ++ array2))
+            (t._1, BDV(array1 ++ array2))
           }
           val l = invMatrix22.rows
-            .map(t => (t._1 + numSubRows, Vectors.fromBreeze(BDV.vertcat(BDV.zeros[Double](numSubRows), t._2.toBreeze.asInstanceOf[BDV[Double]]))))
+            .map(t => (t._1 + numSubRows, (BDV.vertcat(BDV.zeros[Double](numSubRows), t._2.asInstanceOf[BDV[Double]]))))
           (u, l)
         }
         val mat = new DenseVecMatrix(rst._1.union(rst._2), numRows(), numRows())
@@ -1192,7 +1216,7 @@ class DenseVecMatrix(
 
         val result = rows.join(that.rows).mapPartitions(iter => {
           iter.map(t =>
-            (t._1, Vectors.fromBreeze((t._2._1.toBreeze + t._2._2.toBreeze).asInstanceOf[BDV[Double]])))
+            (t._1, ((t._2._1 + t._2._2).asInstanceOf[BDV[Double]])))
         }, true)
         new DenseVecMatrix(result, numRows(), numCols())
       }
@@ -1219,7 +1243,7 @@ class DenseVecMatrix(
 
         val result = rows.join(that.rows).mapPartitions(iter => {
           iter.map(t =>
-            (t._1, Vectors.dense(t._2._1.toArray.zip(t._2._2.toArray).map(x => x._1 - x._2))))
+            (t._1, BDV(t._2._1.toArray.zip(t._2._2.toArray).map(x => x._1 - x._2))))
         }, true)
         new DenseVecMatrix(result, numRows(), numCols())
       }
@@ -1236,7 +1260,7 @@ class DenseVecMatrix(
    * @param b the number to be element-wise added
    */
   final def add(b: Double): DenseVecMatrix = {
-    val result = rows.mapPartitions(iter => { iter.map(t => (t._1, Vectors.dense(t._2.toArray.map(_ + b)))) }, true)
+    val result = rows.mapPartitions(iter => { iter.map(t => (t._1, BDV(t._2.toArray.map(_ + b)))) }, true)
     new DenseVecMatrix(result, numRows(), numCols())
   }
 
@@ -1246,7 +1270,7 @@ class DenseVecMatrix(
    * @param b a number to be element-wise subtracted
    */
   final def subtract(b: Double): DenseVecMatrix = {
-    val result = rows.mapPartitions(iter => { iter.map(t => (t._1, Vectors.dense(t._2.toArray.map(_ - b)))) }, true)
+    val result = rows.mapPartitions(iter => { iter.map(t => (t._1, BDV(t._2.toArray.map(_ - b)))) }, true)
     new DenseVecMatrix(result, numRows(), numCols())
   }
 
@@ -1256,7 +1280,7 @@ class DenseVecMatrix(
    * @param b a number in the format of double
    */
   final def subtractBy(b: Double): DenseVecMatrix = {
-    val result = rows.mapPartitions(iter => { iter.map(t => (t._1, Vectors.dense(t._2.toArray.map(b - _)))) }, true)
+    val result = rows.mapPartitions(iter => { iter.map(t => (t._1, BDV(t._2.toArray.map(b - _)))) }, true)
     new DenseVecMatrix(result, numRows(), numCols())
   }
 
@@ -1266,7 +1290,7 @@ class DenseVecMatrix(
    * @param b a number in the format of double
    */
   final def multiply(b: Double): DenseVecMatrix = {
-    val result = rows.mapPartitions(iter => { iter.map(t => (t._1, Vectors.dense(t._2.toArray.map(_ * b)))) }, true)
+    val result = rows.mapPartitions(iter => { iter.map(t => (t._1, BDV(t._2.toArray.map(_ * b)))) }, true)
     new DenseVecMatrix(result, numRows(), numCols())
   }
 
@@ -1277,7 +1301,7 @@ class DenseVecMatrix(
    * @return result in DenseVecMatrix type
    */
   final def divide(b: Double): DenseVecMatrix = {
-    val result = rows.mapPartitions(iter => { iter.map(t => (t._1, Vectors.dense(t._2.toArray.map(_ / b)))) }, true)
+    val result = rows.mapPartitions(iter => { iter.map(t => (t._1, BDV(t._2.toArray.map(_ / b)))) }, true)
     new DenseVecMatrix(result, numRows(), numCols())
   }
 
@@ -1287,7 +1311,7 @@ class DenseVecMatrix(
    * @param b a number in the format of double
    */
   final def divideBy(b: Double): DenseVecMatrix = {
-    val result = rows.mapPartitions(iter => { iter.map(t => (t._1, Vectors.dense(t._2.toArray.map(b / _)))) }, true)
+    val result = rows.mapPartitions(iter => { iter.map(t => (t._1, BDV(t._2.toArray.map(b / _)))) }, true)
     new DenseVecMatrix(result, numRows(), numCols())
   }
 
@@ -1313,7 +1337,7 @@ class DenseVecMatrix(
         val result = rows.join(that.rows).mapPartitions(iter => {
           iter.map(t => {
             val array = t._2._1.toArray.zip(t._2._2.toArray).map(x => x._1 * x._2)
-            (t._1, Vectors.dense(array))
+            (t._1, BDV(array))
           })
         }, true)
         new DenseVecMatrix(result, numRows(), numCols())
@@ -1347,7 +1371,7 @@ class DenseVecMatrix(
     require((startCol >= 0 && endCol <= numCols() && startCol <= endCol),
       s"start column or end column mismatch the matrix num of columns")
 
-    new DenseVecMatrix(rows.map(t => (t._1, Vectors.dense(t._2.toArray.slice(startCol, endCol + 1)))), numRows(), endCol - startCol + 1)
+    new DenseVecMatrix(rows.map(t => (t._1, BDV(t._2.toArray.slice(startCol, endCol + 1)))), numRows(), endCol - startCol + 1)
   }
 
   /**
@@ -1365,7 +1389,7 @@ class DenseVecMatrix(
 
     new DenseVecMatrix(rows
       .filter(t => (t._1 >= startRow && t._1 <= endRow))
-      .map(t => (t._1 - startRow, Vectors.dense(t._2.toArray.slice(startCol, endCol + 1)))), endRow - startRow + 1, endCol - startCol + 1)
+      .map(t => (t._1 - startRow, BDV(t._2.toArray.slice(startCol, endCol + 1)))), endRow - startRow + 1, endCol - startCol + 1)
   }
 
   /**
@@ -1409,7 +1433,7 @@ class DenseVecMatrix(
    */
   def lr(stepSize: Double, iters: Int): Array[Double] = {
     val featureSize = numCols().toInt
-    var weights = Vectors.dense(Array.fill(featureSize)(0.0)).toBreeze
+    var weights = BDV(Array.fill(featureSize)(0.0))
     val dataSize = numRows()
 
     val data = rows.mapPartitions(rowParts => {
@@ -1417,17 +1441,17 @@ class DenseVecMatrix(
         val arr = row._2.toArray
         val label = arr(0)
         arr(0) = 1     // the first element 1 is the intercept
-        (label, Vectors.dense(arr))
+        (label, BDV(arr))
       })
     }).cache()
     for (i <- 1 to iters) {
       val gradientRDD = data.mapPartitions(part => {
         part.map(x => {
           val label = x._1
-          val features = x._2.toBreeze
+          val features = x._2
           val margin = -1.0 * features.dot(weights)
           val gradientMul = (1.0 / (1.0 + math.exp(margin))) - label
-          val gradient = features * gradientMul
+          val gradient: BDV[Double] = features * gradientMul
           gradient
         })
       })
@@ -1468,14 +1492,14 @@ class DenseVecMatrix(
     out.close()
   }
 
-  /**
-   * A simple wraper of saving the DenseVecMatrix to SequenceFile
-   *
-   * @param path matrix file path
-   */
-  def saveSequenceFile(path: String) {
-    rows.saveAsSequenceFile(path)
-  }
+//  /**
+//   * A simple wraper of saving the DenseVecMatrix to SequenceFile
+//   *
+//   * @param path matrix file path
+//   */
+//  def saveSequenceFile(path: String) {
+//    rows.saveAsSequenceFile(path)
+//  }
 
   /**
    * transform the DenseVecMatrix to BlockMatrix
@@ -1502,100 +1526,66 @@ class DenseVecMatrix(
           (t._1.toInt / mBlockRowSize, t)
         })
       }).groupByKey().mapPartitions(iter => {
-        iter.map(t => {
-          val blockRow = t._1
+        iter.map{case(blockRow, iteratable) =>
           val rowLen = if ((blockRow + 1) * mBlockRowSize > numRows()) {
             numRows().toInt - blockRow * mBlockRowSize
           } else { mBlockRowSize }
-          val iterator = t._2.iterator
           val mat = BDM.zeros[Double](rowLen, mBlockColSize)
+          val iterator = iteratable.iterator
           while (iterator.hasNext) {
             val (index, vec) = iterator.next()
-            vec.toArray.zipWithIndex.map(x => {
-              mat.update(index.toInt - blockRow * mBlockRowSize, x._2, x._1)
-            })
+            mat(index.toInt - blockRow * mBlockRowSize, ::) := vec.t
           }
-          (new BlockID(t._1, 0), mat)
-        })
+          (new BlockID(blockRow, 0), mat)
+        }
       })
       new BlockMatrix(result, numRows(), numCols(), blksByRow, blksByCol)
     } else {
       val result = rows.mapPartitions(iter => {
-        iter.flatMap(t => {
+        iter.flatMap{ case(index, vector) =>
           var startColumn = 0
           var endColumn = 0
-          var arrayBuf = new ArrayBuffer[(BlockID, (Long, Vector))]
-
-          val elems = t._2.toArray
-          var i = 0
-          while (endColumn < (mColumns - 1)) {
+          Iterator.tabulate[(BlockID, (Long, BDV[Double]))](blksByCol)(i => {
             startColumn = i * mBlockColSize
-            endColumn = startColumn + mBlockColSize - 1
-            if (endColumn >= mColumns) {
-              endColumn = mColumns - 1
-            }
-
-            val vector = new Array[Double](endColumn - startColumn + 1)
-            for (j <- startColumn to endColumn) {
-              vector(j - startColumn) = elems(j)
-            }
-
-            arrayBuf += ((new BlockID(t._1.toInt / mBlockRowSize, i), (t._1, Vectors.dense(vector))))
-            i += 1
-          }
-          arrayBuf
-        })
-      })
-        .groupByKey()
-        .mapPartitions(a => {
-          a.map(
-            input => {
-              val colBase = input._1.column * mBlockColSize
-              val rowBase = input._1.row * mBlockRowSize
-
+            endColumn = math.min(startColumn + mBlockColSize, mColumns)
+            (new BlockID(index.toInt / mBlockRowSize, i), (index, vector.slice(startColumn, endColumn)))
+          })
+        }
+      }).groupByKey()
+        .mapPartitions(iter =>
+          iter.map{ case(blkId, iterable) =>
+              val colBase = blkId.column * mBlockColSize
+              val rowBase = blkId.row * mBlockRowSize
               //the block's size: rows & columns
               var smRows = mBlockRowSize
               if ((rowBase + mBlockRowSize - 1) >= mRows) {
                 smRows = mRows - rowBase
               }
-
               var smCols = mBlockColSize
               if ((colBase + mBlockColSize - 1) >= mColumns) {
                 smCols = mColumns - colBase
               }
-
-              val itr = input._2.iterator
               //to generate the local matrix, be careful, the array is column major
-              val array = Array.ofDim[Double](smRows * smCols)
-
-              while (itr.hasNext) {
-                val vec = itr.next()
-                if (vec._2.size != smCols) {
-                  Logger.getLogger(getClass).
-                    log(Level.ERROR, "vectors:  " + input._2 + "Block Column Size mismatch")
-                  throw new IOException("Block Column Size mismatch")
-                }
-
-                val rowOffset = vec._1.toInt - rowBase
-                if (rowOffset >= smRows || rowOffset < 0) {
-                  Logger.getLogger(getClass).log(Level.ERROR, "Block Row Size mismatch")
-                  throw new IOException("Block Row Size mismatch")
-                }
-
-                val tmp = vec._2.toArray
-                for (i <- 0 until tmp.length) {
-                  array(i * smRows + rowOffset) = tmp(i)
-                }
-              }
-
-              val subMatrix = new BDM(smRows, smCols, array)
-              (input._1, subMatrix)
-            })
+              val mat = BDM.zeros[Double](smRows, smCols)
+              val iterator = iterable.iterator
+              while (iterator.hasNext) {
+                val vec = iterator.next()
+                mat((vec._1 - rowBase).toInt, ::) := vec._2.t
+            }
+            (blkId, mat)
         }, true)
-
       new BlockMatrix(result, numRows(), numCols(), blksByRow, blksByCol)
     }
   }
+
+//  /**
+//   * In place to BlockMatrix without shuffle
+//   * @param numBlksByCol
+//   */
+//  @Experimental
+//  def toBlockMatrixNoShufflue(numBlksByCol: Int): BlockMatrix = {
+//
+//  }
 
   /**
    * transform the DenseVecMatrix to SparseVecMatrix
@@ -1625,10 +1615,10 @@ class DenseVecMatrix(
    */
   def print() {
     if (numRows() > 20) {
-      rows.take(20).foreach(t => println("index: " + t._1 + ", vector: " + t._2.print(8)))
+      rows.take(20).foreach(t => println("index: " + t._1 + ", vector: " + t._2.slice(0, math.min(8, t._2.length))))
       println("there are " + numRows() + " rows total...")
     } else {
-      rows.collect().foreach(t => println("index: " + t._1 + ", vector: " + t._2.print(8)))
+      rows.collect().foreach(t => println("index: " + t._1 + ", vector: " + t._2.slice(0, math.min(8, t._2.length))))
     }
   }
 
@@ -1636,7 +1626,7 @@ class DenseVecMatrix(
    * Print the whole matrix out
    */
   def printAll() {
-    rows.collect().foreach(t => println("index: " + t._1 + ", vector: " + t._2.print()))
+    rows.collect().foreach(t => println("index: " + t._1 + ", vector: " + t._2.data.mkString(",")))
   }
 
   /**
@@ -1671,7 +1661,7 @@ class DenseVecMatrix(
     val vbr = rows.context.broadcast(v)
     rows.aggregate(BDV.zeros[Double](n))(
       seqOp = (U, r) => {
-        val rBrz = r._2.toBreeze
+        val rBrz = r._2
         val a = rBrz.dot(vbr.value)
         rBrz match {
           // use specialized axpy for better performance
@@ -1756,7 +1746,7 @@ class DenseVecMatrix(
   def computeSVD(
     k: Int,
     computeU: Boolean = false,
-    rCond: Double = 1e-9): (DenseVecMatrix, DenseVector, Matrix) = {
+    rCond: Double = 1e-9): (DenseVecMatrix, BDV[Double], Matrix) = {
     // maximum number of Arnoldi update iterations for invoking ARPACK
     val maxIter = math.max(300, k * 3)
     // numerical tolerance for invoking ARPACK
@@ -1785,7 +1775,7 @@ class DenseVecMatrix(
     rCond: Double,
     maxIter: Int,
     tol: Double,
-    mode: String): (DenseVecMatrix, DenseVector, Matrix) = {
+    mode: String): (DenseVecMatrix, BDV[Double], Matrix) = {
     val n = numCols().toInt
     require(k > 0 && k <= n, s"Request up to n singular values but got k=$k and n=$n.")
     object SVDMode extends Enumeration {
@@ -1852,7 +1842,7 @@ class DenseVecMatrix(
       logWarning("The input data was not directly cached, which may hurt performance if its"
         + " parent RDDs are also uncached.")
     }
-    val s = Vectors.dense(Arrays.copyOfRange(sigmas.data, 0, sk))
+    val s = BDV(Arrays.copyOfRange(sigmas.data, 0, sk))
 
     val V = Matrices.dense(n, sk, Arrays.copyOfRange(u.data, 0, n * sk)).asInstanceOf[DenseMatrix]
     if (computeU) {
@@ -1891,19 +1881,52 @@ class DenseVecMatrix(
     val Bb = rows.context.broadcast(B)
     val AB = rows.mapPartitions({ iter =>
       val Bi = Bb.value.toBreeze.asInstanceOf[BDM[Double]]
-      iter.map(v => (v._1, Vectors.fromBreeze(Bi.t * v._2.toBreeze.asInstanceOf[BDV[Double]])))
+      iter.map(v => (v._1, (Bi.t * v._2.asInstanceOf[BDV[Double]])))
     }, preservesPartitioning = true)
     new DenseVecMatrix(AB, nRows, B.numCols)
   }
 
+  /**
+   * row-matrix multiply a local small matrix
+   * @param B
+   */
+  def multiplyByRow(B: BDM[Double]): DenseVecMatrix = {
+    require(numCols() == B.rows, s"Dimension mismatch: ${numCols()} vs ${B.rows}")
+    val mat = rows.sparkContext.broadcast(B)
+    val result = rows.mapValues( vector => (vector.t * mat.value).asInstanceOf[Transpose[BDV[Double]]].t)
+    new DenseVecMatrix(result, numRows(), B.cols)
+  }
 
-  def multiply(B: BDM[Double], cores: Int): BlockMatrix = {
+  /**
+   * In each partition, first make all the row elements into an DenseMatrix, after multiplication break down the
+   * matrix to several rows.
+   * @param B
+   */
+  def multiplyBroadcastNew(B: BDM[Double]): DenseVecMatrix ={
+    require(numCols() == B.rows, s"Dimension mismatch: ${numCols()} vs ${B.rows}")
+    val mat = rows.sparkContext.broadcast(B)
+    val result = rows.mapPartitions{ iter =>
+      val rowLen = iter.size
+      val colLen = numCols().toInt
+      val rowsMat = BDM.zeros[Double](rowLen, colLen)
+      val idArray = Array.ofDim[Long](rowLen)
+      iter.zipWithIndex.foreach{ case((id, vector), index) =>
+        idArray(index) = id
+        rowsMat(index, ::) := vector.t
+      }
+      val matrix: BDM[Double] = rowsMat * mat.value
+      Iterator.tabulate[(Long, BDV[Double])](rowLen)(i => (idArray(i), matrix(i, ::).t))
+    }
+    new DenseVecMatrix(result, numRows(), B.cols)
+  }
+
+  def multiplyBroadcast(B: BDM[Double], splitM: Int): BlockMatrix = {
     require(numCols() == B.rows, s"Dimension mismatch: ${numCols()} vs ${B.rows}")
     val Bb = rows.context.broadcast(B)
-    val blocks = toBlockMatrix(math.min(8 * cores, numRows().toInt / 2), 1).getBlocks.map{
+    val blocks = toBlockMatrix(splitM, 1).getBlocks.map{
       block => (block._1, (block._2.asInstanceOf[BDM[Double]] * Bb.value).asInstanceOf[BDM[Double]])
     }
-    new BlockMatrix(blocks, numRows(), B.cols, math.min(8 * cores, numRows().toInt / 2), 1)
+    new BlockMatrix(blocks, numRows(), B.cols, splitM, 1)
   }
 
 }
@@ -1915,12 +1938,12 @@ object DenseVecMatrix {
    *
    * @param U the upper triangular part of the matrix packed in an array (column major)
    */
-  private def dspr(alpha: Double, v: Vector, U: Array[Double]): Unit = {
+  private def dspr(alpha: Double, v: BDV[Double], U: Array[Double]): Unit = {
     // TODO: Find a better home (breeze?) for this method.
     val n = v.size
     v match {
-      case dv: DenseVector =>
-        blas.dspr("U", n, alpha, dv.values, 1, U)
+      case dv: BDV[Double] =>
+        blas.dspr("U", n, alpha, dv.data, 1, U)
       case sv: SparseVector =>
         val indices = sv.indices
         val values = sv.values

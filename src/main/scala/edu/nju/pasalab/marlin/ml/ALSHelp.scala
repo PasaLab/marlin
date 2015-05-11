@@ -14,7 +14,7 @@ import org.apache.spark.storage.StorageLevel
 import org.apache.spark.{HashPartitioner, Partitioner}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext._
-import breeze.linalg.{DenseMatrix => BDM, axpy, inv}
+import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV, axpy, inv}
 
 
 
@@ -397,7 +397,7 @@ object ALSHelp {
   def unblockFactors(blockedFactors: RDD[(Int, Array[Array[Double]])],
                      outLinks: RDD[(Int, OutLinkBlock)]): DenseVecMatrix = {
     val result = blockedFactors.join(outLinks).flatMap { case (b, (factors, outLinkBlock)) =>
-      for (i <- 0 until factors.length) yield (outLinkBlock.elementIds(i).toLong, Vectors.dense(factors(i)))
+      for (i <- 0 until factors.length) yield (outLinkBlock.elementIds(i).toLong, BDV(factors(i)))
     }
     new DenseVecMatrix(result)
   }

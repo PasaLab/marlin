@@ -57,12 +57,12 @@ class SparseVecMatrix(
   */
   def toDenseVecMatrix(): DenseVecMatrix = {
     val mat = MTUtils.zerosDenVecMatrix(rows.context, nRows, nCols.toInt)
-    val result = mat.rows.leftOuterJoin(rows).map(t => {
-      if (t._2._2.isEmpty){
-        (t._1, t._2._1)
+    val result = mat.rows.leftOuterJoin(rows).map{case(id, (denseVec, sparseVec)) => {
+      if (sparseVec.isEmpty){
+        (id, denseVec)
       } else
-      (t._1, Vectors.fromBreeze((t._2._1.toBreeze.+=(t._2._2.get.toBreeze)).asInstanceOf[BDV[Double]]))
-    })
+      (id, (denseVec +=(sparseVec.get.toBreeze)))
+    }}
     new DenseVecMatrix(result, nRows, nCols)
   }
 }

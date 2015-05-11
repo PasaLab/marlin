@@ -2,7 +2,7 @@ package edu.nju.pasalab.marlin.matrix
 
 import scala.{specialized => spec}
 
-import breeze.linalg.{DenseMatrix => BDM}
+import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV}
 import edu.nju.pasalab.marlin.ml.ALSHelp
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext._
@@ -58,7 +58,7 @@ class CoordinateMatrix(
     val indexedRows = entries.map(entry => (entry._1._1, (entry._1._2.toInt, entry._2.asInstanceOf[Double])))
       .groupByKey()
       .map { case (i, vectorEntries) =>
-      (i, Vectors.dense(Vectors.sparse(n, vectorEntries.toSeq).toArray))
+      (i, BDV(Vectors.sparse(n, vectorEntries.toSeq).toArray))
     }
     new DenseVecMatrix(indexedRows, numRows(), n)
   }
