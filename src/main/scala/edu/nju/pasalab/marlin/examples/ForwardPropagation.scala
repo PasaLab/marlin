@@ -28,7 +28,7 @@ object ForwardPropagation {
     val layer2 = BDM.rand[Double](vectorLen, lay2)
     val layer3 = BDM.rand[Double](vectorLen, lay3)
     val lastLayer = BDM.rand[Double](lay3, labels)
-    val result = inputDataMatrix.multiplyBroadcast(layer1, args(1).toInt).multiply(layer2)
+    val result = inputDataMatrix.oldMultiplyBroadcast(layer1, args(1).toInt).multiply(layer2)
       .multiply(layer3).multiply(lastLayer)
     result.getBlocks.count()
   }

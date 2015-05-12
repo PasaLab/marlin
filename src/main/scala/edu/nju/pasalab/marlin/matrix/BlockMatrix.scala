@@ -318,7 +318,7 @@ class BlockMatrix(
     other match {
       case mat: BlockMatrix => {
         if (numBlksByCol() != mat.numBlksByRow()) {
-          toDenseVecMatrix().multiply(mat.toDenseVecMatrix(), cores)
+          toDenseVecMatrix().oldMultiply(mat.toDenseVecMatrix(), cores)
         } else {
           //num of rows to be split of this matrix
           val mSplitNum = numBlksByRow()
@@ -388,7 +388,7 @@ class BlockMatrix(
           })
          new BlockMatrix(result, numRows(), mat.numCols(), numBlksByRow(), numBlksByCol())
         }else {
-          toDenseVecMatrix().multiply(mat, cores)
+          toDenseVecMatrix().oldMultiply(mat, cores)
         }
       }
     }

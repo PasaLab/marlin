@@ -32,8 +32,8 @@ trait DistributedMatrix extends Serializable {
   /** Matrix-matrix subtract another matrix */
   def subtract(other: DistributedMatrix): DistributedMatrix
 
-  /** Element-wise multiply another element */
-  def multiply(d: Double): DistributedMatrix
+//  /** Element-wise multiply another element */
+//  def multiply(d: Double): DistributedMatrix
 
   /** Matrix-matrix multiply another matrix */
 //  def multiply(other: DistributedMatrix, cores: Int): BlockMatrix

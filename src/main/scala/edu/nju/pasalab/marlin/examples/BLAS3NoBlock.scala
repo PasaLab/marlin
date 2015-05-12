@@ -22,7 +22,7 @@ object BLAS3NoBlock {
     matrixA.rows.count()
     val matrixB = BDM.rand[Double](rowB, colB)
     var t0 = System.currentTimeMillis()
-    val result1 = matrixA.multiplyByRow(matrixB)
+    val result1 = matrixA.oldMultiplyByRow(matrixB)
     result1.rows.count()
     println(s"NoBlock multiplication used time ${(System.currentTimeMillis() - t0)} milliseconds")
     t0 = System.currentTimeMillis()

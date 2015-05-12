@@ -46,7 +46,7 @@ object MatrixMultiply {
     val threshold = if (args.length < 6) {
       300
     }else { args(5).toInt }
-    val result = ma.multiply(mb, args(3).toInt)
+    val result = ma.oldMultiply(mb, args(3).toInt)
     println("Result RDD counts: " + result.blocks.count())
 //    println("start store the result matrix in DenseVecMatrix type")
 //    result.saveToFileSystem(args(4))

@@ -47,7 +47,7 @@ object MatrixLUDecompose {
     val (l, u, p) = mat.blockLUDecompose()
 
     /** the result should be a zero matrix */
-    val result = l.multiply(u, 192).subtract(mat.rowExchange(p))
+    val result = l.oldMultiply(u, 192).subtract(mat.rowExchange(p))
     result.saveToFileSystem(args(3))
 
     sc.stop()

@@ -6,9 +6,9 @@ import org.apache.spark.{SparkContext, SparkConf}
 
 object BLAS3 {
   def main(args: Array[String]) {
-    if (args.length < 3){
-      println("usage: BLAS3 <matrixA row length> <matrixA column length> <matrixB column length>")
-      println("for example: BLAS3 10000 10000 10000 ")
+    if (args.length < 7) {
+      println("usage: BLAS3 <matrixA row length> <matrixA column length> <matrixB column length> <m> <k> <n> <mode>")
+      println("for example: BLAS3 10000 10000 10000 5 5 5 new")
       System.exit(1)
     }
     val conf = new SparkConf()
@@ -19,22 +19,21 @@ object BLAS3 {
     val colB = args(2).toInt
     val matrixA = MTUtils.randomDenVecMatrix(sc, rowA, colA)
     val matrixB = MTUtils.randomDenVecMatrix(sc, rowB, colB)
-    matrixA.rows.cache()
-    matrixB.rows.cache()
-    matrixA.rows.count()
-    matrixB.rows.count()
-    for (m <- 4 to 7) {
-      for (k <- 4 to 7){
-        for (n <- 4 to 7){
-          println(s"split mode: ($m , $k, $n); matrixA: $rowA by $colA ; matrixB: $rowB by $colB")
-          val t0 = System.currentTimeMillis()
-          val result = matrixA.multiplySpark(matrixB, (m, k, n))
-          result.blocks.count()
-          println(s"multiplication used time ${(System.currentTimeMillis() - t0)} milliseconds")
-          println("===========================================================================")
-          Thread.sleep(10000)
-        }
-      }
+    val m = args(3).toInt
+    val k = args(4).toInt
+    val n = args(5).toInt
+    val mode = args(6)
+    println(s"split mode: ($m , $k, $n); matrixA: $rowA by $colA ; matrixB: $rowB by $colB, mode: $mode")
+    if (mode.equals("new")) {
+      val t0 = System.currentTimeMillis()
+      val result = matrixA.multiply(matrixB, (m , k , n))
+      result.blocks.count()
+      println(s"multiplication used time ${(System.currentTimeMillis() - t0)} milliseconds")
+    }else {
+      val t0 = System.currentTimeMillis()
+      val result = matrixA.oldMultiplySpark(matrixB, (m, k, n))
+      result.blocks.count()
+      println(s"multiplication used time ${(System.currentTimeMillis() - t0)} milliseconds")
     }
     sc.stop()
 
