@@ -120,8 +120,8 @@ class DenseVecMatrix(
     require(numCols() == other.numRows(), s"dimension mismatch: ${numCols()} vs ${other.numRows()}")
     val (m, k, n) = splitMode
     val partitioner = new MatrixMultPartitioner(m, k, n)
-    val thisEmits = toBlocks(m, k, n, "right").partitionBy(partitioner)
-    val otherEmits = other.toBlocks(m, k, n, "left").partitionBy(partitioner)
+    val thisEmits = toBlocks(m, k, n, "right")//.partitionBy(partitioner)
+    val otherEmits = other.toBlocks(m, k, n, "left")//.partitionBy(partitioner)
     val result = thisEmits.join(otherEmits).mapPartitions(iter =>
       iter.map { case (blkId, (block1, block2)) =>
         val c: BDM[Double] = block1.asInstanceOf[BDM[Double]] * block2.asInstanceOf[BDM[Double]]
@@ -217,7 +217,7 @@ class DenseVecMatrix(
     //      for (i <- 0 until array.size){
     //        idArray(i) = array(i)._1.toInt
     //        rowsMat(::, i) := array(i)._2
-    //      }
+    //        }
     //      val tuples = ((bvec.value * rowsMat).asInstanceOf[Transpose[BDV[Double]]].inner.data).zip(idArray)
     //      Iterator.single(tuples)
     //    }.collect()
@@ -1764,7 +1764,7 @@ class DenseVecMatrix(
           var endColumn = 0
           var arrayBuf = new ArrayBuffer[(BlockID, (Long, BDV[Double]))]
           var i = 0
-          while (endColumn < (mColumns - 1)) {
+          while (endColumn < mColumns ) {
             startColumn = i * mBlockColSize
             endColumn = startColumn + mBlockColSize
             if (endColumn >= mColumns) {
@@ -1780,7 +1780,6 @@ class DenseVecMatrix(
         iter.map { case (blkId, iterable) =>
           val colBase = blkId.column * mBlockColSize
           val rowBase = blkId.row * mBlockRowSize
-          //the block's size: rows & columns
           var smRows = mBlockRowSize
           if ((rowBase + mBlockRowSize - 1) >= mRows) {
             smRows = mRows - rowBase
@@ -1789,27 +1788,17 @@ class DenseVecMatrix(
           if ((colBase + mBlockColSize - 1) >= mColumns) {
             smCols = mColumns - colBase
           }
-          //to generate the local matrix, be careful, the array is column major
           val mat = BDM.zeros[Double](smRows, smCols)
           val iterator = iterable.iterator
           while (iterator.hasNext) {
-            val vec = iterator.next()
-            mat((vec._1 - rowBase).toInt, ::) := vec._2.t
+            val (index, vector) = iterator.next()
+            mat((index - rowBase).toInt, ::) := vector.t
           }
           (blkId, mat)
         }, true)
       new BlockMatrix(result, numRows(), numCols(), blksByRow, blksByCol)
     }
   }
-
-  //  /**
-  //   * In place to BlockMatrix without shuffle
-  //   * @param numBlksByCol
-  //   */
-  //  @Experimental
-  //  def toBlockMatrixNoShufflue(numBlksByCol: Int): BlockMatrix = {
-  //
-  //  }
 
   /**
    * transform the DenseVecMatrix to SparseVecMatrix
