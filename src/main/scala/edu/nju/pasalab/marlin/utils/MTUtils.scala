@@ -2,6 +2,7 @@ package edu.nju.pasalab.marlin.utils
 
 import java.nio.ByteBuffer
 
+import scala.collection.mutable.ArrayBuffer
 import scala.util.hashing.MurmurHash3
 import scala.{specialized => spec}
 
@@ -155,6 +156,62 @@ object MTUtils {
       }
     }
     (mSplitNum, kSplitNum, nSplitNum)
+  }
+
+  /**
+   * generate the split method
+   * @param oldRange
+   * @param newRange
+   */
+  def splitMethod(oldRange: Array[(Int, Int)],
+                  newRange: Array[(Int, Int)]): Array[ArrayBuffer[(Int, (Int, Int), (Int, Int))]] = {
+    val oldBlks = oldRange.length
+    val newBlks = newRange.length
+    val splitStatus = Array.ofDim[ArrayBuffer[(Int, (Int, Int),(Int, Int))]](oldBlks)
+    for (i <- 0 until oldBlks) {
+      splitStatus(i) = new ArrayBuffer[(Int, (Int, Int), (Int, Int))]()
+    }
+    var index = 0
+    var newOffset = 0
+    for (i <- 0 until oldBlks) {
+      var oldOffset = 0
+      if (oldRange(i)._2 < newRange(index)._2) {
+        //        println(s"1st place, i: $i, index: $index")
+        val len = oldRange(i)._2 - oldRange(i)._1
+        splitStatus(i).append((index,(oldOffset, len + oldOffset), (newOffset, len + newOffset)))
+        newOffset = len + 1
+      }else if (oldRange(i)._2 == newRange(index)._2) {
+        //        println(s"1st2 place, i: $i, index: $index")
+        val len = oldRange(i)._2 - oldRange(i)._1
+        splitStatus(i).append((index, (oldOffset, len + oldOffset), (newOffset, len + newOffset)))
+        index += 1
+        newOffset = 0
+      }else {
+        if (oldRange(i)._1 <= newRange(index)._2) {
+          //          println(s"2nd place, i: $i, index: $index")
+          val len = newRange(index)._2 - oldRange(i)._1
+          splitStatus(i).append((index, (oldOffset, len + oldOffset), (newOffset, len + newOffset)))
+          oldOffset += len + 1
+          index += 1
+          newOffset = 0
+        }
+        while (index < newBlks && oldRange(i)._2 >= newRange(index)._2 /*&& oldRange(i)._1 <= newRange(index)._2*/) {
+          //          println(s"3rd place, i: $i, index: $index")
+          val len = newRange(index)._2 - newRange(index)._1
+          splitStatus(i).append((index, (oldOffset, len + oldOffset), (newOffset, len + newOffset)))
+          oldOffset += len + 1
+          index += 1
+          newOffset = 0
+        }
+        if (oldRange(i)._2 > newRange(index - 1)._2) {
+          //            newOffset = 0
+          val len = oldRange(i)._2 - newRange(index)._1
+          splitStatus(i).append((index, (oldOffset , len + oldOffset), (newOffset,  len + newOffset)))
+          newOffset +=  len + 1
+        }
+      }
+    }
+    splitStatus
   }
 
   private def dimToSplit(m: Long, k: Long, n: Long): Int={

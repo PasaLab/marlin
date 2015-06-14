@@ -84,6 +84,15 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
     assert(blkSeq.contains(BlockID(0, 1), BDM((2.0, 3.0), (4.0, 5.0))))
     assert(blkSeq.contains(BlockID(1, 0), BDM((3.0, 2.0), (1.0, 1.0))))
     assert(blkSeq.contains(BlockID(1, 1), BDM((1.0, 0.0), (1.0, 1.0))))
+    val blkMat2 = mat.toBlockMatrix(1, 4)
+    val matCB22 = mat.toBlockMatrixFromCoordinate(2, 2)
+    val matCB14 = mat.toBlockMatrixFromCoordinate(1, 4)
+    val expected = mat.toBreeze()
+    assert(blkMat.toBreeze() === expected)
+    assert(blkMat2.toBreeze() === expected)
+    assert(matCB14.toBreeze() === expected)
+    assert(matCB22.toBreeze() === expected)
+
   }
 
 
@@ -247,6 +256,8 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
     assert(blkSeq.contains(new BlockID(0, 0), BDM((11.0, 10.0, 9.0, 8.0), (23.0, 24.0, 25.0, 26.0))))
     assert(blkSeq.contains(new BlockID(1, 0), BDM((7.0, 11.0, 15.0, 19.0), (6.0, 7.0, 8.0, 9.0))))
   }
+
+
   test("transpose") {
     val mat = new DenseVecMatrix(indexRows)
     val result = mat.transpose()
@@ -397,4 +408,50 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
     assert(result === expected)
     assert(result2 === expected)
   }
+
+  test("BlockMatrix to BlockMatrix") {
+    val mat = new DenseVecMatrix(indexRows)
+    val blk1 = mat.toBlockMatrix(2, 2)
+    val blk2 = blk1.toBlockMatrix(1, 4)
+    val blk3 = blk1.toBlockMatrix(4, 1)
+    assert(blk1.toBreeze() === blk2.toBreeze())
+    assert(blk1.toBreeze() === blk3.toBreeze())
+  }
+
+  test("BlockMatrix multiply a BlockMatrix") {
+    val mat = new DenseVecMatrix(indexRows)
+    val blk1 = mat.toBlockMatrix(2, 2)
+    val blk2 = mat.toBlockMatrix(1, 4)
+    val m = blk1.toBlockMatrix(2, 1)
+    println(s"this toBreeze: ${m.toBreeze()}")
+    println(s"other toBreeze: ${blk2.toBreeze()}")
+    println(s"block matrix info: numRows: ${m.numRows()}, numCols: ${m.numCols()}, " +
+      s"blksByRow: ${m.numBlksByRow()}, blksByCol: ${m.numBlksByCol()}")
+    val result = m.multiplySpark(blk2)
+    val expected = BDM(
+      (11.0, 10.0, 9.0, 8.0),
+      (23.0, 24.0, 25.0, 26.0),
+      (7.0, 11.0, 15.0, 19.0),
+      (6.0, 7.0, 8.0, 9.0))
+    assert(result.toBreeze() === expected)
+  }
+
+  test("BlockMatrix multiply a broadcast matrix"){
+    val blkMat = new BlockMatrix(blocks)
+    val local = BDM(
+      (0.0, 1.0, 2.0, 3.0),
+      (2.0, 3.0, 4.0, 5.0),
+      (3.0, 2.0, 1.0, 0.0),
+      (1.0, 1.0, 1.0, 1.0))
+    val expected = BDM(
+      (11.0, 10.0, 9.0, 8.0),
+      (23.0, 24.0, 25.0, 26.0),
+      (7.0, 11.0, 15.0, 19.0),
+      (6.0, 7.0, 8.0, 9.0))
+    val result = blkMat.multiply(local)
+//    result.print()
+    assert(result.toBreeze() === expected)
+
+  }
+
 }

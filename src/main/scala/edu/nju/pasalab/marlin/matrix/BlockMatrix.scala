@@ -1,6 +1,7 @@
 package edu.nju.pasalab.marlin.matrix
 
 import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV}
+import edu.nju.pasalab.marlin.utils.MTUtils
 import scala.collection.mutable.ArrayBuffer
 import scala.{specialized => spec}
 import edu.nju.pasalab.marlin.rdd.MatrixMultPartitioner
@@ -102,22 +103,16 @@ class BlockMatrix(
       if (nSplitNum == 1) {
         blocks.map{case(blkId, blk) => }
       }
-      val thisEmitBlocks = blocks.flatMap({ t =>
-        val array = Array.ofDim[(BlockID, BDM[Double])](nSplitNum)
-        for (i <- 0 until nSplitNum) {
-          val seq = t._1.row * nSplitNum * kSplitNum + i * kSplitNum + t._1.column
-          array(i) = (new BlockID(t._1.row, i, seq), t._2)
-        }
-        array
-      }
-      ).partitionBy(partitioner)
-      val otherEmitBlocks = other.blocks.flatMap({ t =>
-        val array = Array.ofDim[(BlockID, BDM[Double])](mSplitNum)
-        for (i <- 0 until mSplitNum) {
-          val seq = i * nSplitNum * kSplitNum + t._1.column * kSplitNum + t._1.row
-          array(i) = (new BlockID(i, t._1.column, seq), t._2)
-        }
-        array
+      val thisEmitBlocks = blocks.flatMap({ case(blkId, blk) =>
+        Iterator.tabulate[(BlockID, BDM[Double])](nSplitNum)(i => {
+          val seq = blkId.row * nSplitNum * kSplitNum + i * kSplitNum + blkId.column
+          (BlockID(blkId.row, i, seq), blk)})
+      }).partitionBy(partitioner)
+      val otherEmitBlocks = other.blocks.flatMap({ case(blkId, blk) =>
+        Iterator.tabulate[(BlockID, BDM[Double])](mSplitNum)(i => {
+          val seq = i * nSplitNum * kSplitNum + blkId.column * kSplitNum + blkId.row
+          (BlockID(i, blkId.column, seq), blk)
+        })
       })//.partitionBy(partitioner)
       if (kSplitNum != 1) {
         val otherBlocks = thisEmitBlocks.context.joinBroadcast(otherEmitBlocks)
@@ -250,10 +245,18 @@ class BlockMatrix(
       if (kSplitNum != 1) {
         val result = thisEmitBlocks.join(otherEmitBlocks).mapPartitions(iter =>
           iter.map { case (blkId, (block1, block2)) =>
+            logInfo(s"start blk:${blkId.row}, ${blkId.column} multiply")
             val c: BDM[Double] = block1.asInstanceOf[BDM[Double]] * block2.asInstanceOf[BDM[Double]]
             (BlockID(blkId.row, blkId.column), c)
           }
-        ).reduceByKey(_ + _)
+        ).reduceByKey((a, b) => {
+          logInfo(s"start add")
+          a + b}
+        )
+
+//        thisEmitBlocks.cogroup(otherEmitBlocks, partitioner).flatMap{case((blkId, (a, b))) =>
+//            if (a.size)
+//        }
         new BlockMatrix(result, numRows(), other.numCols(), mSplitNum, nSplitNum)
       } else {
         val result = thisEmitBlocks.join(otherEmitBlocks).mapPartitions(iter =>
@@ -827,8 +830,8 @@ class BlockMatrix(
       val newSplitByRow = (0 until newBlksByRow).map(i =>
         (newMostBlkRowLen * i, math.min(newMostBlkRowLen * (i + 1) - 1, numRows().toInt - 1))).toArray
 
-      val splitStatusByCol = splitMethod(splitByCol, newSplitByCol)
-      val splitStatusByRow = splitMethod(splitByRow, newSplitByRow)
+      val splitStatusByCol = MTUtils.splitMethod(splitByCol, newSplitByCol)
+      val splitStatusByRow = MTUtils.splitMethod(splitByRow, newSplitByRow)
 
       val result = blocks.flatMap { case (blkId, blk) =>
         val row = blkId.row
@@ -867,56 +870,7 @@ class BlockMatrix(
     }
   }
 
-  def splitMethod(oldRange: Array[(Int, Int)],
-                  newRange: Array[(Int, Int)]): Array[ArrayBuffer[(Int, (Int, Int), (Int, Int))]] = {
-    val oldBlks = oldRange.length
-    val newBlks = newRange.length
-    val splitStatus = Array.ofDim[ArrayBuffer[(Int, (Int, Int),(Int, Int))]](oldBlks)
-    for (i <- 0 until oldBlks) {
-      splitStatus(i) = new ArrayBuffer[(Int, (Int, Int), (Int, Int))]()
-    }
-    var index = 0
-    var newOffset = 0
-    for (i <- 0 until oldBlks) {
-      var oldOffset = 0
-      if (oldRange(i)._2 < newRange(index)._2) {
-//        println(s"1st place, i: $i, index: $index")
-        val len = oldRange(i)._2 - oldRange(i)._1
-        splitStatus(i).append((index,(oldOffset, len + oldOffset), (newOffset, len + newOffset)))
-        newOffset = len + 1
-      }else if (oldRange(i)._2 == newRange(index)._2) {
-//        println(s"1st2 place, i: $i, index: $index")
-        val len = oldRange(i)._2 - oldRange(i)._1
-        splitStatus(i).append((index, (oldOffset, len + oldOffset), (newOffset, len + newOffset)))
-        index += 1
-        newOffset = 0
-      }else {
-        if (oldRange(i)._1 <= newRange(index)._2) {
-//          println(s"2nd place, i: $i, index: $index")
-          val len = newRange(index)._2 - oldRange(i)._1
-          splitStatus(i).append((index, (oldOffset, len + oldOffset), (newOffset, len + newOffset)))
-          oldOffset += len + 1
-          index += 1
-          newOffset = 0
-        }
-        while (index < newBlks && oldRange(i)._2 >= newRange(index)._2 /*&& oldRange(i)._1 <= newRange(index)._2*/) {
-//          println(s"3rd place, i: $i, index: $index")
-          val len = newRange(index)._2 - newRange(index)._1
-          splitStatus(i).append((index, (oldOffset, len + oldOffset), (newOffset, len + newOffset)))
-          oldOffset += len + 1
-          index += 1
-          newOffset = 0
-        }
-        if (oldRange(i)._2 > newRange(index - 1)._2) {
-          //            newOffset = 0
-          val len = oldRange(i)._2 - newRange(index)._1
-          splitStatus(i).append((index, (oldOffset , len + oldOffset), (newOffset,  len + newOffset)))
-          newOffset +=  len + 1
-        }
-      }
-    }
-    splitStatus
-  }
+
 
 
   /**
