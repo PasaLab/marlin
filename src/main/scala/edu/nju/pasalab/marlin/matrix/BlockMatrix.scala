@@ -7,7 +7,7 @@ import scala.{specialized => spec}
 import edu.nju.pasalab.marlin.rdd.MatrixMultPartitioner
 import org.apache.hadoop.io.{Text, NullWritable}
 import org.apache.hadoop.mapred.TextOutputFormat
-import org.apache.spark.{Logging, HashPartitioner}
+import org.apache.spark.{Partitioner, Logging, HashPartitioner}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.SparkContext._
 
@@ -871,7 +871,18 @@ class BlockMatrix(
   }
 
 
-
+  /**
+   * element-wise matrix-matrix multiplication
+   * @param other
+   * @param partitioner during join phase, with the customized partitioner, we can avoid the shuffle stage
+   */
+  def elementMultiply(other: BlockMatrix, partitioner: Partitioner): BlockMatrix = {
+    val result = blocks.join(other.getBlocks, partitioner).map{ case(blkId, (blk1, blk2)) =>
+        blk1 :*=  blk2
+      (blkId, blk1)
+    }
+    new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
+  }
 
   /**
    * Column bind to generate a new distributed matrix
@@ -881,7 +892,7 @@ class BlockMatrix(
   def cBind(other: DistributedMatrix): DistributedMatrix = {
     require(numRows() == other.numRows(), s"Row dimension mismatches: ${numRows()} vs ${other.numRows()}")
     other match {
-      case that: BlockMatrix => {
+      case that: BlockMatrix =>
         if (numBlksByRow() == that.numBlksByRow()) {
           val result = that.blocks.map(t =>
             (new BlockID(t._1.row, t._1.column + numBlksByCol()), t._2)).union(blocks)
@@ -891,13 +902,10 @@ class BlockMatrix(
           val thisDenVec = this.toDenseVecMatrix()
           thisDenVec.cBind(thatDenVec)
         }
-      }
-      case that: DenseVecMatrix => {
+      case that: DenseVecMatrix =>
         toDenseVecMatrix().cBind(that)
-      }
-      case _ => {
+      case _ =>
         throw new IllegalArgumentException("have not implemented yet")
-      }
     }
   }
 
