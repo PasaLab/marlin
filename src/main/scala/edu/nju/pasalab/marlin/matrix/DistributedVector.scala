@@ -1,5 +1,6 @@
 package edu.nju.pasalab.marlin.matrix
 
+import scala.collection.mutable.ArrayBuffer
 import scala.{specialized=>spec}
 import breeze.linalg.{DenseVector => BDV, DenseMatrix => BDM, Transpose}
 
@@ -70,6 +71,70 @@ class DistributedVector(
       result.slice(id * offset, id * offset + v.length) := v
     }
     result
+  }
+
+  /**
+   * transform from distributed vector to another distributed vector
+   * according to the split status
+   * @param splitStatusByRow ATTENTION!!! the splitStatusByRow here means the splitstatus
+   *                         of each partition, not each element in RDD
+   * @param splitNum
+   * @return
+   */
+  def toDisVector(splitStatusByRow: Array[ArrayBuffer[(Int, (Int, Int), (Int, Int))]],
+                    splitNum: Int): DistributedVector = {
+    val mostSplitLen = math.ceil(length.toDouble / splitNum.toDouble).toInt
+//    val splitLen = math.ceil(length.toDouble / mostSplitLen).toInt
+    val vecs = vectors.mapPartitionsWithIndex{ (id, iter) =>
+      val array = Array.ofDim[(Int, (Int, Int, BDV[Double]))](splitStatusByRow(id).size)
+      var count = 0
+      val vector = iter.next()._2
+      for ((vecId, (oldStart, oldEnd), (newStart, newEnd)) <- splitStatusByRow(id)) {
+        array(count) = (vecId, (newStart, newEnd, vector(oldStart to oldEnd)))
+        count += 1
+      }
+      array.toIterator
+    }.groupByKey().mapPartitions{ iter =>
+      iter.map{ case(vecId, iterable) =>
+          val vecLen = if ((vecId + 1) * mostSplitLen > length) {
+            (length - vecId * mostSplitLen).toInt
+          } else mostSplitLen
+          val vector = BDV.zeros[Double](vecLen)
+          val iterator = iterable.iterator
+          for ((rowStart, rowEnd, vec) <- iterator) {
+            vector(rowStart to rowEnd) := vec.asInstanceOf[BDV[Double]]
+          }
+        (vecId, vector)
+      }
+    }
+//    val blocks = rows.mapPartitionsWithIndex { (id, iter) =>
+//      val array = Array.ofDim[(BlockID, (Int, Int, BDM[Double]))](splitStatusByRow(id).size)
+//      var count = 0
+//      for ((rowId, (oldRow1, oldRow2), (newRow1, newRow2)) <- splitStatusByRow(id)) {
+//        val rowBlock = oldRow2 - oldRow1 + 1
+//        val blk = BDM.zeros[Double](rowBlock, numCols().toInt)
+//        for (i <- 0 until rowBlock) {
+//          blk(i, ::) := iter.next()._2.t
+//        }
+//        array(count) = (BlockID(rowId, 1), (newRow1, newRow2, blk))
+//        count += 1
+//      }
+//      array.toIterator
+//    }.groupByKey().mapPartitions { iter =>
+//      iter.map { case (blkId, iterable) =>
+//        val rowLen = if ((blkId.row + 1) * mostSplitLen > numRows()) {
+//          (numRows() - blkId.row * mostSplitLen).toInt
+//        } else mostSplitLen
+//        val mat = BDM.zeros[Double](rowLen, numCols().toInt)
+//        val iterator = iterable.iterator
+//        for ((rowStart, rowEnd, blk) <- iterator) {
+//          mat(rowStart to rowEnd, ::) := blk
+//        }
+//        (blkId, mat)
+//      }
+//    }
+//    new BlockMatrix(blocks, numRows(), numCols(), splitLen, 1)
+      new DistributedVector(vecs)
   }
 
   /**

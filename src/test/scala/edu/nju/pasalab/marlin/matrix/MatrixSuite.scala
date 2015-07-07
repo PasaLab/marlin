@@ -5,6 +5,8 @@ import org.apache.spark.rdd.RDD
 import org.scalatest.FunSuite
 import breeze.linalg.{ DenseMatrix => BDM, DenseVector => BDV }
 
+import scala.collection.mutable.ArrayBuffer
+
 class MatrixSuite extends FunSuite with LocalSparkContext {
 
   val m = 4
@@ -107,6 +109,31 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
     assert(rowSeq.contains((1L, BDV(2.0, 3.0, 4.0, 5.0))))
     assert(rowSeq.contains((2L, BDV(3.0, 2.0, 1.0, 0.0))))
     assert(rowSeq.contains((3L, BDV(1.0, 1.0, 1.0, 1.0))))
+  }
+
+  test("disVec to disVec") {
+    val data = Seq(
+      (0, BDV(0.0, 1.0, 2.0, 3.0)),
+      (1, BDV(4.0, 5.0, 6.0, 7.0)),
+      (2, BDV(8.0, 9.0, 10.0, 11.0)))
+    // set partitionNum to 3, to make every one element as every partition
+    val vec = sc.parallelize(data, 3)
+    val disVec1 = new DistributedVector(vec)
+    val splitStatus = Array.ofDim[ArrayBuffer[(Int, (Int, Int), (Int, Int))]](3)
+    // create the splitsttus of each partition
+    for (i <- splitStatus.indices) {
+      val tmp = new ArrayBuffer[(Int, (Int, Int), (Int, Int))]()
+      if (i == 0) {
+        tmp.+=((0, (0, 2), (0, 2)), (1, (3, 3), (0, 0)))
+      } else if(i == 1){
+        tmp.+=((1, (0, 1), (1, 2)), (2, (2, 3), (0, 1)))
+      } else {
+        tmp.+=((2, (0, 0), (2, 2)), (3, (1, 3), (0, 2)))
+      }
+      splitStatus(i) = tmp
+    }
+    val disVec2 = disVec1.toDisVector(splitStatus, 4)
+    assert(disVec1.toBreeze() === disVec2.toBreeze())
   }
 
   test("Matrix-matrix and element-wise addition/subtract; element-wise multiply and divide") {

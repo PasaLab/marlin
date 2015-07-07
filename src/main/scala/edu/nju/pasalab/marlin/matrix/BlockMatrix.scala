@@ -119,13 +119,11 @@ class BlockMatrix(
         val result = thisEmitBlocks.mapPartitions(iter =>
           iter.map { block =>
             val blkId = block._1
-            val id = Random.nextInt(1000)
-            val b2 = otherBlocks.getValue(blkId, id)
-            logInfo(s"start $id multiply")
+            val b2 = otherBlocks.getValue(blkId)
             val t0 = System.currentTimeMillis()
             val b1 = block._2.asInstanceOf[BDM[Double]]
             val c = (b1 * b2).asInstanceOf[BDM[Double]]
-            logInfo(s"finish $id multiply, time consumed ${(System.currentTimeMillis() - t0) / 1000} seconds")
+//            logInfo(s"finish $id multiply, time consumed ${(System.currentTimeMillis() - t0) / 1000} seconds")
             (new BlockID(blkId.row, blkId.column), c)
           }).reduceByKey(_ + _)
 //        otherBlocks.destroy()
@@ -134,9 +132,8 @@ class BlockMatrix(
         val otherBlocks = thisEmitBlocks.context.joinBroadcast(otherEmitBlocks)
         val result = thisEmitBlocks.map({ block =>
           val blkId = block._1
-          val id = Random.nextInt(1000)
           val b1 = block._2.asInstanceOf[BDM[Double]]
-          val b2 = otherBlocks.getValue(blkId, id)
+          val b2 = otherBlocks.getValue(blkId)
           val c = (b1 * b2).asInstanceOf[BDM[Double]]
           (new BlockID(blkId.row, blkId.column), c)
         })
@@ -189,24 +186,24 @@ class BlockMatrix(
    * @param other
    * @return
    */
-  def multiplyBroadcast(other: DenseVecMatrix): BlockMatrix = {
-    require(numBlksByCol() == 1, s"boradcast multiplication only supported BlockMatrix without split")
-    require(numCols() == other.numRows(), s"Dimension mismatch: ${numCols()} vs ${other.numRows()}")
-    val otherRows = blocks.context.executorBroadcast(other.rows)
-    val result = blocks.mapPartitions { iter =>
-      val rows = otherRows.value
-      val rowLen = rows.length
-      val colLen = rows(0)._2.size
-      val mat = BDM.zeros[Double](rowLen, colLen)
-      for (r <- rows) {
-        mat(r._1.toInt, ::) := r._2.t
-      }
-      iter.map { case (blkId, block) =>
-        (blkId, (block * mat).asInstanceOf[BDM[Double]])
-      }
-    }
-    new BlockMatrix(result, numRows(), other.numCols(), numBlksByRow(), numBlksByCol())
-  }
+//  def multiplyBroadcast(other: DenseVecMatrix): BlockMatrix = {
+//    require(numBlksByCol() == 1, s"boradcast multiplication only supported BlockMatrix without split")
+//    require(numCols() == other.numRows(), s"Dimension mismatch: ${numCols()} vs ${other.numRows()}")
+//    val otherRows = blocks.context.executorBroadcast(other.rows)
+//    val result = blocks.mapPartitions { iter =>
+//      val rows = otherRows.value
+//      val rowLen = rows.length
+//      val colLen = rows(0)._2.size
+//      val mat = BDM.zeros[Double](rowLen, colLen)
+//      for (r <- rows) {
+//        mat(r._1.toInt, ::) := r._2.t
+//      }
+//      iter.map { case (blkId, block) =>
+//        (blkId, (block * mat).asInstanceOf[BDM[Double]])
+//      }
+//    }
+//    new BlockMatrix(result, numRows(), other.numCols(), numBlksByRow(), numBlksByCol())
+//  }
 
   def multiplyBroadcastSpark(other: DenseVecMatrix): BlockMatrix = {
     require(numBlksByCol() == 1, s"boradcast multiplication only supported BlockMatrix without split")
@@ -353,13 +350,12 @@ class BlockMatrix(
             val result = thisEmitBlocks.mapPartitions(iter =>
               iter.map { block =>
                 val blkId = block._1
-                val id = Random.nextInt(1000)
-                val b2 = otherBlocks.getValue(blkId, id)
-                logInfo(s"start $id multiply")
+                val b2 = otherBlocks.getValue(blkId)
+//                logInfo(s"start $id multiply")
                 val t0 = System.currentTimeMillis()
                 val b1 = block._2.asInstanceOf[BDM[Double]]
                 val c = (b1 * b2).asInstanceOf[BDM[Double]]
-                logInfo(s"finish $id multiply, time consumed ${(System.currentTimeMillis() - t0) / 1000} seconds")
+//                logInfo(s"finish $id multiply, time consumed ${(System.currentTimeMillis() - t0) / 1000} seconds")
                 (new BlockID(blkId.row, blkId.column), c)
               }).reduceByKey(_ + _)
             new BlockMatrix(result, numRows(), other.numCols(), mSplitNum, nSplitNum)
@@ -367,9 +363,8 @@ class BlockMatrix(
             val otherBlocks = thisEmitBlocks.context.joinBroadcast(otherEmitBlocks)
             val result = thisEmitBlocks.map({ block =>
               val blkId = block._1
-              val id = Random.nextInt(1000)
               val b1 = block._2.asInstanceOf[BDM[Double]]
-              val b2 = otherBlocks.getValue(blkId, id)
+              val b2 = otherBlocks.getValue(blkId)
               val c = (b1 * b2).asInstanceOf[BDM[Double]]
               (new BlockID(blkId.row, blkId.column), c)
             })
@@ -429,15 +424,14 @@ class BlockMatrix(
     if (numBlksByCol() != 1) {
       val bv = blocks.context.joinBroadcast(v.vectors)
       val vectors = blocks.map { case (blkID, blk) =>
-        val tag = Random.nextInt(1000)
-        (blkID.row, (blk * bv.getValue(blkID.column, tag)))
+        (blkID.row, blk * bv.getValue(blkID.column))
       }.reduceByKey(_ + _)
       new DistributedVector(vectors)
     } else {
       val bv = blocks.context.joinBroadcast(v.vectors)
       val vectors = blocks.map { case (blkID, blk) =>
         val tag = Random.nextInt(1000)
-        (blkID.row, (blk * bv.getValue(blkID.column, tag)))
+        (blkID.row, blk * bv.getValue(blkID.column))
       }
       new DistributedVector(vectors)
     }

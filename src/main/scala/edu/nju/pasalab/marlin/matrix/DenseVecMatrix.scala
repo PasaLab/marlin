@@ -424,165 +424,164 @@ class DenseVecMatrix(
     new DenseVecMatrix(result, numRows(), numCols())
   }
 
-  def blockLUDecomposeNew(mode: String = "auto"): (BlockMatrix, Array[Int]) = {
-    require(numRows() == numCols(),
-      s"LU decompose only support square matrix: ${numRows()} v.s ${numCols()}")
-    object LUmode extends Enumeration {
-      val LocalBreeze, DistSpark = Value
-    }
-    val computeMode = mode match {
-      case "auto" => if (numRows > 6000L) {
-        LUmode.DistSpark
-      } else {
-        LUmode.LocalBreeze
-      }
-      case "breeze" => LUmode.LocalBreeze
-      case "dist" => LUmode.DistSpark
-      case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
-    }
-    val (luResult: BlockMatrix, perm: Array[Int]) = computeMode match {
-      case LUmode.LocalBreeze => {
-        val brz = toBreeze()
-        val lu = brzLU(brz)
-        val pArray = (0 until lu._2.length).toArray
-        for (i <- 0 until lu._2.length) {
-          val tmp = pArray(i)
-          pArray(i) = pArray(lu._2(i) - 1)
-          pArray(lu._2(i) - 1) = tmp
-        }
-        val blk = rows.context.parallelize(Seq((new BlockID(0, 0), lu._1)), 1)
-        (new BlockMatrix(blk, lu._1.rows, lu._1.cols, 1, 1), pArray)
-      }
-
-      case LUmode.DistSpark => {
-        val subMatrixBase = rows.context.getConf.getInt("marlin.lu.basesize", 2000)
-        val numBlksRow, numBlksByCol = math.ceil(numRows() / subMatrixBase).toInt
-        val pArray = Array.ofDim[Int](numRows().toInt)
-        var blkMat = this.toBlockMatrix(numBlksRow, numBlksByCol).blocks
-        blkMat.cache()
-        for (i <- 0 until numBlksRow) {
-          logInfo(s"LU iteration: $i")
-          val lu: JoinBroadcast[String, Object] = if (i == 0) {
-            rows.context.joinBroadcast(blkMat.filter(block => (block._1.row == i && block._1.column == i))
-              .flatMap { t =>
-              val t0 = System.currentTimeMillis()
-              val (mat, p): (BDM[Double], Array[Int]) = brzLU(t._2)
-              logInfo(s"in iteration $i, lu takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
-              val array = Array.ofDim[(String, Object)](3)
-              val l = lowerTriangular(mat).asInstanceOf[BDM[Double]]
-              for (i <- 0 until l.rows) {
-                l.update(i, i, 1.0)
-              }
-              array(0) = ("u", upperTriangular(mat))
-              array(1) = (("l", l))
-              array(2) = (("p", p))
-              array
-            })
-          } else {
-            val luBefore = rows.context.
-              joinBroadcast(blkMat.filter(block => (block._1.row == i - 1 && block._1.column == i) ||
-              (block._1.row == i && block._1.column == i - 1)).map { blk =>
-              if (blk._1.column == i) {
-                ("lBefore", blk._2)
-              } else ("uBefore", blk._2)
-            })
-            rows.context.joinBroadcast(blkMat.filter(block => (block._1.row == i && block._1.column == i))
-              .flatMap { t =>
-              val tag = Random.nextInt(1000)
-              logInfo(s"in iteration $i, start get A4")
-              val tmp: BDM[Double] = luBefore.getValue("lBefore", tag) * luBefore.getValue("uBefore", tag)
-              val t0 = System.currentTimeMillis()
-              val (mat, p): (BDM[Double], Array[Int]) = brzLU(t._2 - tmp)
-              logInfo(s"in iteration $i, minus and lu takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
-              val array = Array.ofDim[(String, Object)](3)
-              val l = lowerTriangular(mat).asInstanceOf[BDM[Double]]
-              for (i <- 0 until l.rows) {
-                l.update(i, i, 1.0)
-              }
-              //              luBefore.destroy()
-              array(0) = ("u", upperTriangular(mat))
-              array(1) = (("l", l))
-              array(2) = (("p", p))
-              array
-            })
-          }
-
-          val part = lu.getValue("p", 1).asInstanceOf[Array[Int]]
-          for (j <- 0 until part.length) {
-            pArray(i * part.length + j) = part(j)
-          }
-
-          blkMat = blkMat.mapPartitions { blocks =>
-
-            blocks.map(block => {
-              if (block._1.row == i && block._1.column > i) {
-                logInfo(s"in iteration $i, start get A2 ")
-                val p = lu.getValue("p", 1).asInstanceOf[Array[Int]]
-                val array = (0 until p.length).toArray
-                for (j <- 0 until p.length) {
-                  val tmp = array(i)
-                  array(i) = array(p(i) - 1)
-                  array(p(i) - 1) = tmp
-                }
-                for (j <- 0 until array.length) {
-                  array(j) = j
-                }
-                val tag = Random.nextInt(1000)
-                val t0 = System.currentTimeMillis()
-                val l = lu.getValue("l", tag).asInstanceOf[BDM[Double]].t
-                //              logInfo(s"in iteration $i, inverse takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
-                val permutation = BDM.zeros[Double](l.cols, l.rows)
-                for (j <- 0 until array.length) {
-                  permutation.update(j, array(j), 1.0)
-                }
-                //              t0 = System.currentTimeMillis()
-                //              val tmp: BDM[Double] = l * permutation.asInstanceOf[BDM[Double]]
-                //              logInfo(s"in iteration $i, multiply takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
-                val a2 = (block._2 * permutation).asInstanceOf[BDM[Double]].t
-                for (r <- 0 until block._2.cols) {
-                  val a2Array = a2(::, r)
-                  for (j <- 0 until a2Array.length) {
-                    for (k <- 0 until j) {
-                      a2Array(j) = a2Array(j) - l.apply(j, k) * a2Array(k)
-                    }
-                    a2Array(j) = a2Array(j) / l.apply(j, j)
-                  }
-                  block._2(::, r) := a2Array
-                }
-                logInfo(s"in iteration $i, get A2 takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
-                (block._1, block._2)
-              } else if (block._1.column == i && block._1.row > i) {
-                logInfo(s"in iteration $i, start get A3 ")
-                val t0 = System.currentTimeMillis()
-                val tag = Random.nextInt(1000)
-                val u = lu.getValue("u", tag).asInstanceOf[BDM[Double]].t
-                val a3 = block._2.t
-                for (r <- 0 until block._2.cols) {
-                  val a2Array = a3(::, r)
-                  for (j <- 0 until a2Array.length) {
-                    for (k <- 0 until j) {
-                      a2Array(j) = a2Array(j) - u.apply(k, j) * a2Array(k)
-                    }
-                    a2Array(j) = a2Array(j) / u.apply(j, j)
-                  }
-                  block._2(::, r) := a2Array
-                }
-                logInfo(s"in iteration $i, get A3 takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
-                (block._1, block._2)
-              } else if (block._1.row == i && block._1.column == i) {
-                (block._1, brzLU(block._2)._1)
-              } else block
-            }
-              //          lu.destroy()
-            )
-          }
-        }
-        (new BlockMatrix(blkMat), pArray)
-
-      }
-    }
-    (luResult, perm)
-  }
+//  def blockLUDecomposeNew(mode: String = "auto"): (BlockMatrix, Array[Int]) = {
+//    require(numRows() == numCols(),
+//      s"LU decompose only support square matrix: ${numRows()} v.s ${numCols()}")
+//    object LUmode extends Enumeration {
+//      val LocalBreeze, DistSpark = Value
+//    }
+//    val computeMode = mode match {
+//      case "auto" => if (numRows > 6000L) {
+//        LUmode.DistSpark
+//      } else {
+//        LUmode.LocalBreeze
+//      }
+//      case "breeze" => LUmode.LocalBreeze
+//      case "dist" => LUmode.DistSpark
+//      case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
+//    }
+//    val (luResult: BlockMatrix, perm: Array[Int]) = computeMode match {
+//      case LUmode.LocalBreeze => {
+//        val brz = toBreeze()
+//        val lu = brzLU(brz)
+//        val pArray = (0 until lu._2.length).toArray
+//        for (i <- 0 until lu._2.length) {
+//          val tmp = pArray(i)
+//          pArray(i) = pArray(lu._2(i) - 1)
+//          pArray(lu._2(i) - 1) = tmp
+//        }
+//        val blk = rows.context.parallelize(Seq((new BlockID(0, 0), lu._1)), 1)
+//        (new BlockMatrix(blk, lu._1.rows, lu._1.cols, 1, 1), pArray)
+//      }
+//
+//      case LUmode.DistSpark => {
+//        val subMatrixBase = rows.context.getConf.getInt("marlin.lu.basesize", 2000)
+//        val numBlksRow, numBlksByCol = math.ceil(numRows() / subMatrixBase).toInt
+//        val pArray = Array.ofDim[Int](numRows().toInt)
+//        var blkMat = this.toBlockMatrix(numBlksRow, numBlksByCol).blocks
+//        blkMat.cache()
+//        for (i <- 0 until numBlksRow) {
+//          logInfo(s"LU iteration: $i")
+//          val lu: JoinBroadcast[String, Object] = if (i == 0) {
+//            rows.context.joinBroadcast(blkMat.filter(block => (block._1.row == i && block._1.column == i))
+//              .flatMap { t =>
+//              val t0 = System.currentTimeMillis()
+//              val (mat, p): (BDM[Double], Array[Int]) = brzLU(t._2)
+//              logInfo(s"in iteration $i, lu takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
+//              val array = Array.ofDim[(String, Object)](3)
+//              val l = lowerTriangular(mat).asInstanceOf[BDM[Double]]
+//              for (i <- 0 until l.rows) {
+//                l.update(i, i, 1.0)
+//              }
+//              array(0) = ("u", upperTriangular(mat))
+//              array(1) = (("l", l))
+//              array(2) = (("p", p))
+//              array
+//            })
+//          } else {
+//            val luBefore = rows.context.
+//              joinBroadcast(blkMat.filter(block => (block._1.row == i - 1 && block._1.column == i) ||
+//              (block._1.row == i && block._1.column == i - 1)).map { blk =>
+//              if (blk._1.column == i) {
+//                ("lBefore", blk._2)
+//              } else ("uBefore", blk._2)
+//            })
+//            rows.context.joinBroadcast(blkMat.filter(block => (block._1.row == i && block._1.column == i))
+//              .flatMap { t =>
+//              logInfo(s"in iteration $i, start get A4")
+//              val tmp: BDM[Double] = luBefore.getValue("lBefore") * luBefore.getValue("uBefore")
+//              val t0 = System.currentTimeMillis()
+//              val (mat, p): (BDM[Double], Array[Int]) = brzLU(t._2 - tmp)
+//              logInfo(s"in iteration $i, minus and lu takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
+//              val array = Array.ofDim[(String, Object)](3)
+//              val l = lowerTriangular(mat).asInstanceOf[BDM[Double]]
+//              for (i <- 0 until l.rows) {
+//                l.update(i, i, 1.0)
+//              }
+//              //              luBefore.destroy()
+//              array(0) = ("u", upperTriangular(mat))
+//              array(1) = (("l", l))
+//              array(2) = (("p", p))
+//              array
+//            })
+//          }
+//
+//          val part = lu.getValue("p", 1).asInstanceOf[Array[Int]]
+//          for (j <- 0 until part.length) {
+//            pArray(i * part.length + j) = part(j)
+//          }
+//
+//          blkMat = blkMat.mapPartitions { blocks =>
+//
+//            blocks.map(block => {
+//              if (block._1.row == i && block._1.column > i) {
+//                logInfo(s"in iteration $i, start get A2 ")
+//                val p = lu.getValue("p", 1).asInstanceOf[Array[Int]]
+//                val array = (0 until p.length).toArray
+//                for (j <- 0 until p.length) {
+//                  val tmp = array(i)
+//                  array(i) = array(p(i) - 1)
+//                  array(p(i) - 1) = tmp
+//                }
+//                for (j <- 0 until array.length) {
+//                  array(j) = j
+//                }
+//                val tag = Random.nextInt(1000)
+//                val t0 = System.currentTimeMillis()
+//                val l = lu.getValue("l", tag).asInstanceOf[BDM[Double]].t
+//                //              logInfo(s"in iteration $i, inverse takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
+//                val permutation = BDM.zeros[Double](l.cols, l.rows)
+//                for (j <- 0 until array.length) {
+//                  permutation.update(j, array(j), 1.0)
+//                }
+//                //              t0 = System.currentTimeMillis()
+//                //              val tmp: BDM[Double] = l * permutation.asInstanceOf[BDM[Double]]
+//                //              logInfo(s"in iteration $i, multiply takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
+//                val a2 = (block._2 * permutation).asInstanceOf[BDM[Double]].t
+//                for (r <- 0 until block._2.cols) {
+//                  val a2Array = a2(::, r)
+//                  for (j <- 0 until a2Array.length) {
+//                    for (k <- 0 until j) {
+//                      a2Array(j) = a2Array(j) - l.apply(j, k) * a2Array(k)
+//                    }
+//                    a2Array(j) = a2Array(j) / l.apply(j, j)
+//                  }
+//                  block._2(::, r) := a2Array
+//                }
+//                logInfo(s"in iteration $i, get A2 takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
+//                (block._1, block._2)
+//              } else if (block._1.column == i && block._1.row > i) {
+//                logInfo(s"in iteration $i, start get A3 ")
+//                val t0 = System.currentTimeMillis()
+//                val tag = Random.nextInt(1000)
+//                val u = lu.getValue("u", tag).asInstanceOf[BDM[Double]].t
+//                val a3 = block._2.t
+//                for (r <- 0 until block._2.cols) {
+//                  val a2Array = a3(::, r)
+//                  for (j <- 0 until a2Array.length) {
+//                    for (k <- 0 until j) {
+//                      a2Array(j) = a2Array(j) - u.apply(k, j) * a2Array(k)
+//                    }
+//                    a2Array(j) = a2Array(j) / u.apply(j, j)
+//                  }
+//                  block._2(::, r) := a2Array
+//                }
+//                logInfo(s"in iteration $i, get A3 takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
+//                (block._1, block._2)
+//              } else if (block._1.row == i && block._1.column == i) {
+//                (block._1, brzLU(block._2)._1)
+//              } else block
+//            }
+//              //          lu.destroy()
+//            )
+//          }
+//        }
+//        (new BlockMatrix(blkMat), pArray)
+//
+//      }
+//    }
+//    (luResult, perm)
+//  }
 
   /**
    * This is an experimental implementation of block LU decomposition. The method is still in progress.
@@ -641,7 +640,7 @@ class DenseVecMatrix(
         (new DenseVecMatrix(lDense, numRows, numRows), new DenseVecMatrix(uDense, numRows, numRows), pArray)
       }
 
-      case LUmode.DistSpark => {
+      case LUmode.DistSpark =>
         //val numSubRows = getFactor(numRows, Math.sqrt(numRows).toLong).toInt
         val numSubRows = 1000
         val numSubRows2 = (numRows - numSubRows).toInt
@@ -724,7 +723,6 @@ class DenseVecMatrix(
         })
 
         (LMatrix, UMatrix, PMatrix)
-      }
     }
     (lower, upper, permutation)
 
@@ -1414,7 +1412,7 @@ class DenseVecMatrix(
   final def divideBy(b: Double): DenseVecMatrix = {
     val result = rows.mapPartitions(iter => {
       iter.map(t => (t._1, BDV(t._2.toArray.map(b / _))))
-    }, true)
+    }, preservesPartitioning = true)
     new DenseVecMatrix(result, numRows(), numCols())
   }
 
