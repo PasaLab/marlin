@@ -1766,7 +1766,7 @@ class DenseVecMatrix(
         for (i <- 0 until rowBlock) {
           blk(i, ::) := iter.next()._2.t
         }
-        array(count) = (BlockID(rowId, 1), (newRow1, newRow2, blk))
+        array(count) = (BlockID(rowId, 0), (newRow1, newRow2, blk))
         count += 1
       }
       array.toIterator

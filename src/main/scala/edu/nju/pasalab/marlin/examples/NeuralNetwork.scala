@@ -133,7 +133,7 @@ object NeuralNetwork extends Logging{
         output: RDD[(BlockID, BDM[Double])],
         labels: RDD[(BlockID, BDV[Int])]): RDD[(BlockID, BDM[Double])] = {
     output.join(labels).mapValues{case(blk, vec) =>
-        println(s"compute output error, vec activesize: ${vec.activeSize}")
+//      println(s"computeOutputError label vector: ${vec}")
         for(i <- 0 until vec.length) {
           blk(i, vec(i)) -= 1.0
         }
@@ -152,7 +152,9 @@ object NeuralNetwork extends Logging{
         outputDelta: RDD[(BlockID, BDM[Double])],
         weight: BDM[Double]): RDD[(BlockID, BDM[Double])] = {
     outputDelta.mapPartitions(iter =>
-      iter.map{case(blkId, blk) => (blkId, blk * weight)}
+        iter.map{case(blkId, blk) =>
+//          println(s"computeLayerError blk: $blk")
+          (blkId, blk * weight)}
     , preservesPartitioning = true)
   }
 
@@ -168,8 +170,8 @@ object NeuralNetwork extends Logging{
       iter.map{case(blkId, blk) => (blkId, blk.map(x => dSigmoid(x)))}
     , preservesPartitioning = true)
     dActivation.join(error).map{ case(blkId, (blk1, blk2)) =>
+//      println(s"computeDelta blk1: $blk1")
       blk1 :*=  blk2
-      println(s"compute delta, blk1 dimension: ${blk1.rows} by ${blk1.cols}")
       (blkId, blk1)
     }
   }
@@ -188,9 +190,9 @@ object NeuralNetwork extends Logging{
     val inputTranspose = input.mapValues(blk => blk.t)
     inputTranspose.join(delta).mapPartitions(iter =>
       iter.map { case (blkId, (inputT, d)) =>
-        println(s"inputT dimension: ${inputT.rows} by ${inputT.cols}")
+//        println(s"computeWeightUpd inputT: $inputT")
+//        println(s"computeWeightUpd d: $d")
         val tmp = (inputT * d).asInstanceOf[BDM[Double]]
-        println(s"tmp result matrix 1st row: ${tmp(0, ::)}")
         tmp * learningRate
       }
     ).reduce(_ + _)
@@ -224,8 +226,6 @@ object NeuralNetwork extends Logging{
     data.cache()
     val labels = oriLabels.partitionBy(partitioner)
     labels.cache()
-//    data.getBlocks.cache()
-//    labels.cache()
     println(s"data partitioner: ${data.partitioner}")
     println(s"labels partitioner: ${labels.partitioner}")
     for (i <- 0 until iterations) {
@@ -237,71 +237,46 @@ object NeuralNetwork extends Logging{
       /** Propagate through the network by mini-batch SGD **/
 //      val tp = System.currentTimeMillis()
       val inputData = data.filter{case(blkId, _) => set.contains(blkId.row)}.cache()
-//      println(s"inputData rdd count: ${inputData.count()}")
-      println(s"inputData partitioner: ${inputData.partitioner}")
-//      println(s"inputData rdd count: ${inputData.count()}")
+//      println(s"inputData partitioner: ${inputData.partitioner}")
       val hiddenLayerInput = inputData.mapPartitions(
         iter => iter.map{case(blkId, block) =>
           (blkId, (block * hiddenWeight).asInstanceOf[BDM[Double]])}
       , preservesPartitioning = true).cache()
-      println(s"hiddenLayerInput partitioner: ${hiddenLayerInput.partitioner}")
+//      println(s"hiddenLayerInput partitioner: ${hiddenLayerInput.partitioner}")
       val hiddenLayerOut = hiddenLayerInput.mapValues(_.map(x => sigmoid(x))).cache()
-      println(s"hiddenLayerOut partitioner: ${hiddenLayerOut.partitioner}")
-      val outputlayerInput = hiddenLayerOut.mapPartitions(
+//      println(s"hiddenLayerOut partitioner: ${hiddenLayerOut.partitioner}")
+      val outputLayerInput = hiddenLayerOut.mapPartitions(
         iter => iter.map{case(blkId, block) =>
-          println(s"get the input of the outpu layer, block size: ${block.rows} by ${block.cols}")
+          println(s"get the input of the output layer, block : $block")
           (blkId, (block * outputWeight).asInstanceOf[BDM[Double]])}
         , preservesPartitioning = true).cache()
-      println(s"outputlayerInput partitioner: ${outputlayerInput.partitioner}")
-      val outputLayerOut = outputlayerInput.mapValues(_.map(x => sigmoid(x))).cache()
+//      println(s"outputLayerInput partitioner: ${outputLayerInput.partitioner}")
+      val outputLayerOut = outputLayerInput.mapValues(_.map(x => sigmoid(x))).cache()
       println(s"outputLayerOut count: ${outputLayerOut.count()}")
-      println(s"outputLayerOut partitioner: ${outputLayerOut.partitioner}")
-//      println(s"in iteration $i, " +
-//        s"Propagate through the network used time: ${System.currentTimeMillis() - tp} millis")
+//      println(s"outputLayerOut partitioner: ${outputLayerOut.partitioner}")
 
 
       /** Back Propagate the errors **/
-//      val tb = System.currentTimeMillis()
       val selectedLabels = labels.filter{case(blockId, _) => set.contains(blockId.row)}
-//      println(s"selectedLabels rdd count: ${selectedLabels.count()}")
-      // update the output layer
-      val outputError = //computeOutputError(outputLayerOut, selectedLabels)
-      outputLayerOut.join(selectedLabels).mapValues{case(blk, vec) =>
-        println(s"compute output error, vec activesize: ${vec.activeSize}")
-        for(i <- 0 until vec.length) {
-          blk(i, vec(i)) -= 1.0
-        }
-        blk
-      }
-      println(s"output error count: ${outputError.count()}")
-      val outputDelta = computeDelta(outputlayerInput, outputError)
-      println(s"output delta count: ${outputDelta.count()}")
+      val outputError = computeOutputError(outputLayerOut, selectedLabels)
+
+      val outputDelta = computeDelta(outputLayerInput, outputError)
 
       // update the hidden layer
       val hiddenError = computeLayerError(outputDelta, outputWeight.t)
-      println(s"hidden error count: ${hiddenError.count()}")
       val hiddenDelta = computeDelta(hiddenLayerInput, hiddenError)
-      println(s"hidden delta count: ${hiddenDelta.count()}")
-      //      println(s"in iteration $i, " +
-//        s"back propagate the errors used time: ${System.currentTimeMillis() - tp} millis")
+
       /** update the weights **/
-//      val hiddenOutTranspose = hiddenLayerOut.mapValues(blk => blk.t)
-//      val outWeightUpd = hiddenOutTranspose.join(outputDelta).mapPartitions(iter =>
-//        iter.map { case (blkId, (inputT, delta)) =>
-//          ((inputT * delta).asInstanceOf[BDM[Double]] * learningRate).asInstanceOf[BDM[Double]]}
-//      ).reduce(_ + _)
       val outWeightUpd = computeWeightUpd(hiddenLayerOut, outputDelta, learningRate)
       println(s"outWeightUpd: \n $outWeightUpd")
       outputWeight -= outWeightUpd
 
       val hiddenWeightUpd = computeWeightUpd(inputData, hiddenDelta, learningRate)
       hiddenWeight -= hiddenWeightUpd
-//      println(s"in iteration $i, " +
-//        s"update the weights used time: ${System.currentTimeMillis() - tb} millis")
 
       hiddenLayerInput.unpersist()
       hiddenLayerOut.unpersist()
-      outputlayerInput.unpersist()
+      outputLayerInput.unpersist()
       inputData.unpersist()
       outputLayerOut.unpersist()
 
