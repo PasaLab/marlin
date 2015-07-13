@@ -6,7 +6,7 @@ import scala.collection.mutable.ArrayBuffer
 import scala.util.hashing.MurmurHash3
 import scala.{specialized => spec}
 
-import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV}
+import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV, min, max}
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 
@@ -161,55 +161,26 @@ object MTUtils {
   /**
    * generate the split method
    * @param oldRange
-   * @param newRange
+   * @param newSubBlk the sub-block length of the new matrix
    */
-  def splitMethod(oldRange: Array[(Int, Int)],
-                  newRange: Array[(Int, Int)]): Array[ArrayBuffer[(Int, (Int, Int), (Int, Int))]] = {
+  def splitMethod(oldRange: Array[(Int, Int)], newSubBlk: Int):
+        Array[ArrayBuffer[(Int, (Int, Int), (Int, Int))]] = {
     val oldBlks = oldRange.length
-    val newBlks = newRange.length
     val splitStatus = Array.ofDim[ArrayBuffer[(Int, (Int, Int),(Int, Int))]](oldBlks)
-    for (i <- 0 until oldBlks) {
-      splitStatus(i) = new ArrayBuffer[(Int, (Int, Int), (Int, Int))]()
-    }
-    var index = 0
-    var newOffset = 0
-    for (i <- 0 until oldBlks) {
-      var oldOffset = 0
-      if (oldRange(i)._2 < newRange(index)._2) {
-        //        println(s"1st place, i: $i, index: $index")
-        val len = oldRange(i)._2 - oldRange(i)._1
-        splitStatus(i).append((index,(oldOffset, len + oldOffset), (newOffset, len + newOffset)))
-        newOffset = len + 1
-      }else if (oldRange(i)._2 == newRange(index)._2) {
-        //        println(s"1st2 place, i: $i, index: $index")
-        val len = oldRange(i)._2 - oldRange(i)._1
-        splitStatus(i).append((index, (oldOffset, len + oldOffset), (newOffset, len + newOffset)))
-        index += 1
-        newOffset = 0
-      }else {
-        if (oldRange(i)._1 <= newRange(index)._2) {
-          //          println(s"2nd place, i: $i, index: $index")
-          val len = newRange(index)._2 - oldRange(i)._1
-          splitStatus(i).append((index, (oldOffset, len + oldOffset), (newOffset, len + newOffset)))
-          oldOffset += len + 1
-          index += 1
-          newOffset = 0
-        }
-        while (index < newBlks && oldRange(i)._2 >= newRange(index)._2 /*&& oldRange(i)._1 <= newRange(index)._2*/) {
-          //          println(s"3rd place, i: $i, index: $index")
-          val len = newRange(index)._2 - newRange(index)._1
-          splitStatus(i).append((index, (oldOffset, len + oldOffset), (newOffset, len + newOffset)))
-          oldOffset += len + 1
-          index += 1
-          newOffset = 0
-        }
-        if (oldRange(i)._2 > newRange(index - 1)._2) {
-          //            newOffset = 0
-          val len = oldRange(i)._2 - newRange(index)._1
-          splitStatus(i).append((index, (oldOffset , len + oldOffset), (newOffset,  len + newOffset)))
-          newOffset +=  len + 1
-        }
+    for (i <- 0 until oldBlks){
+      val (start, end) = oldRange(i)
+      val startId = start / newSubBlk
+      val endId = end / newSubBlk
+      val num = endId - startId + 1
+      val tmpBlk = math.ceil((end - start + 1).toDouble / num.toDouble).toInt
+      val arrayBuffer = new ArrayBuffer[(Int, (Int, Int), (Int, Int))]()
+      var tmp = 0
+      for (j <- 0 until num){
+        val tmpEnd = min(tmp + tmpBlk - 1, end)
+        arrayBuffer.+=((j + startId, (tmp , tmpEnd), ((tmp + start) % newSubBlk, (tmpEnd + start) % newSubBlk)))
+        tmp += tmpBlk
       }
+      splitStatus(i) = arrayBuffer
     }
     splitStatus
   }

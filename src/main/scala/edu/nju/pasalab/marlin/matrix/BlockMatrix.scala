@@ -818,14 +818,9 @@ class BlockMatrix(
       val splitByRow = (0 until numBlksByRow()).map(i =>
         (mostBlkRowLen * i, math.min(mostBlkRowLen * (i + 1) - 1, numRows().toInt - 1))).toArray
 
-      val newSplitByCol = (0 until newBlksByCol).map(i =>
-        (newMostBlkColLen * i, math.min(newMostBlkColLen * (i + 1) - 1, numCols().toInt - 1))).toArray
+      val splitStatusByCol = MTUtils.splitMethod(splitByCol, newMostBlkColLen)
 
-      val newSplitByRow = (0 until newBlksByRow).map(i =>
-        (newMostBlkRowLen * i, math.min(newMostBlkRowLen * (i + 1) - 1, numRows().toInt - 1))).toArray
-
-      val splitStatusByCol = MTUtils.splitMethod(splitByCol, newSplitByCol)
-      val splitStatusByRow = MTUtils.splitMethod(splitByRow, newSplitByRow)
+      val splitStatusByRow = MTUtils.splitMethod(splitByRow, newMostBlkRowLen)
 
       val result = blocks.flatMap { case (blkId, blk) =>
         val row = blkId.row
