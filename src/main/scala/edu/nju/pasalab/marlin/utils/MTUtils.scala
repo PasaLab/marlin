@@ -172,13 +172,13 @@ object MTUtils {
       val startId = start / newSubBlk
       val endId = end / newSubBlk
       val num = endId - startId + 1
-      val tmpBlk = math.ceil((end - start + 1).toDouble / num.toDouble).toInt
+//      val tmpBlk = math.ceil((end - start + 1).toDouble / num.toDouble).toInt
       val arrayBuffer = new ArrayBuffer[(Int, (Int, Int), (Int, Int))]()
       var tmp = 0
       for (j <- 0 until num){
-        val tmpEnd = min(tmp + tmpBlk - 1, end)
+        val tmpEnd = min((j + startId + 1) * newSubBlk - 1 - start , end - start)
         arrayBuffer.+=((j + startId, (tmp , tmpEnd), ((tmp + start) % newSubBlk, (tmpEnd + start) % newSubBlk)))
-        tmp += tmpBlk
+        tmp = tmpEnd + 1
       }
       splitStatus(i) = arrayBuffer
     }

@@ -50,7 +50,7 @@ object NeuralNetwork extends Logging{
       val indices = start.toLong to end.toLong
       indices.toIterator.zip(iter.map{ line =>
         val items = line.split("\\s+")
-        val indicesAndValues = items.tail.map { item =>
+        val indicesAndValues = items.tail.map{ item =>
           val indexAndValue = item.split(":")
           // mnist index starts from 1
           val ind = indexAndValue(0).toInt - 1
@@ -64,23 +64,10 @@ object NeuralNetwork extends Logging{
         BDV(array)
       }) }, preservesPartitioning = true)
 
-
-    // the index arrange of the generated block-matrix
-    val blockIndex = {
-      val subVec = math.ceil(count.toDouble / blkNum.toDouble).toInt
-      val vecCount = math.ceil(count.toDouble / subVec.toDouble).toInt
-      val array = new Array[(Int, Int)](vecCount)
-      for (i <- 0 until vecCount) {
-        array(i) = (i * subVec, (i + 1) * subVec - 1)
-      }
-      array
-    }
-
-    val splitStatusByRow = MTUtils.splitMethod(partitionIndex, blockIndex)
-
+    val subVec = math.ceil(count.toDouble / blkNum.toDouble).toInt
+    val splitStatusByRow = MTUtils.splitMethod(partitionIndex, subVec)
     val mat = new DenseVecMatrix(rows, count.toLong, vectorLen)
     val blkMat = mat.toBlockMatrix(splitStatusByRow, blkNum)
-
     val labels = values.mapPartitionsWithIndex(
       (id, iter) => {
       val array = iter.map{ line =>
@@ -186,33 +173,33 @@ object NeuralNetwork extends Logging{
   def computeWeightUpd(
         input: RDD[(BlockID, BDM[Double])],
         delta: RDD[(BlockID, BDM[Double])],
-        learningRate: Double): BDM[Double] = {
+        learningRate: Double,
+        batchSize: Int): BDM[Double] = {
     val inputTranspose = input.mapValues(blk => blk.t)
     inputTranspose.join(delta).mapPartitions(iter =>
       iter.map { case (blkId, (inputT, d)) =>
-//        println(s"computeWeightUpd inputT: $inputT")
-//        println(s"computeWeightUpd d: $d")
         val tmp = (inputT * d).asInstanceOf[BDM[Double]]
-        tmp * learningRate
+        tmp * (learningRate / batchSize)
       }
     ).reduce(_ + _)
   }
 
 
   def main(args: Array[String]) {
-    if (args.length < 7) {
+    if (args.length < 8) {
       println("usage: NeuralNetwork <input path> <output path> <iterations>  " +
-        "<learningRate> <blocks num> " +
-        "<block on each executor> {<layer unit num> ...}")
+        "<learningRate> <executors> <block on each executor> " +
+        "<selected blocks on each executor> {<layer unit num> ...}")
       System.exit(-1)
     }
     val input = args(0)
     val iterations = args(2).toInt
     val learningRate = args(3).toDouble
-    val blkNum = args(4).toInt
-    val selectedEachExecutor = args(5).toInt
-    val layerNum = args(6).toInt
-    val conf = new SparkConf()
+    val executors = args(4).toInt
+    val blkEachExecutor = args(5).toInt
+    val selectedEachExecutor = args(6).toInt
+    val layerNum = args(7).toInt
+    val conf = new SparkConf()//.setMaster("local[2]").setAppName("test NN local")
     val sc = new SparkContext(conf)
     val vectorLen = 28 * 28
     // when initializing the weight matrix, the elements should be close to zero
@@ -220,40 +207,30 @@ object NeuralNetwork extends Logging{
     val hiddenWeight = BDM.rand[Double](vectorLen, layerNum, dis)
     val outputWeight = BDM.rand[Double](layerNum, 10, dis)
     println(s"weight matrix updated")
-    val (oriData, oriLabels) = loadMNISTImages(sc, input, vectorLen, blkNum)
-    val partitioner = new NeuralNetworkPartitioner(blkNum)
+    val totalBlks = executors * blkEachExecutor
+    val (oriData, oriLabels) = loadMNISTImages(sc, input, vectorLen, totalBlks)
+    val dataSize = oriData.numRows()
+    val partitioner = new NeuralNetworkPartitioner(totalBlks)
     val data = oriData.getBlocks.partitionBy(partitioner)
     data.cache()
     val labels = oriLabels.partitionBy(partitioner)
     labels.cache()
-    println(s"data partitioner: ${data.partitioner}")
-    println(s"labels partitioner: ${labels.partitioner}")
+    val batchSize: Int = (selectedEachExecutor.toDouble / blkEachExecutor.toDouble * dataSize).toInt
     for (i <- 0 until iterations) {
       val t0 = System.currentTimeMillis()
-      // here we assume it has 16 * 24 = 384 blocks in total,
-      // every time sample 32 blocks out, each executor has 2 block
-      val set = genRandomBlocks(16, 24, selectedEachExecutor)
-
+      val set = genRandomBlocks(executors, blkEachExecutor, selectedEachExecutor)
       /** Propagate through the network by mini-batch SGD **/
-//      val tp = System.currentTimeMillis()
       val inputData = data.filter{case(blkId, _) => set.contains(blkId.row)}.cache()
-//      println(s"inputData partitioner: ${inputData.partitioner}")
       val hiddenLayerInput = inputData.mapPartitions(
         iter => iter.map{case(blkId, block) =>
           (blkId, (block * hiddenWeight).asInstanceOf[BDM[Double]])}
       , preservesPartitioning = true).cache()
-//      println(s"hiddenLayerInput partitioner: ${hiddenLayerInput.partitioner}")
       val hiddenLayerOut = hiddenLayerInput.mapValues(_.map(x => sigmoid(x))).cache()
-//      println(s"hiddenLayerOut partitioner: ${hiddenLayerOut.partitioner}")
       val outputLayerInput = hiddenLayerOut.mapPartitions(
         iter => iter.map{case(blkId, block) =>
-          println(s"get the input of the output layer, block : $block")
           (blkId, (block * outputWeight).asInstanceOf[BDM[Double]])}
         , preservesPartitioning = true).cache()
-//      println(s"outputLayerInput partitioner: ${outputLayerInput.partitioner}")
       val outputLayerOut = outputLayerInput.mapValues(_.map(x => sigmoid(x))).cache()
-      println(s"outputLayerOut count: ${outputLayerOut.count()}")
-//      println(s"outputLayerOut partitioner: ${outputLayerOut.partitioner}")
 
 
       /** Back Propagate the errors **/
@@ -267,11 +244,10 @@ object NeuralNetwork extends Logging{
       val hiddenDelta = computeDelta(hiddenLayerInput, hiddenError)
 
       /** update the weights **/
-      val outWeightUpd = computeWeightUpd(hiddenLayerOut, outputDelta, learningRate)
-      println(s"outWeightUpd: \n $outWeightUpd")
+      val outWeightUpd = computeWeightUpd(hiddenLayerOut, outputDelta, learningRate, batchSize)
       outputWeight -= outWeightUpd
 
-      val hiddenWeightUpd = computeWeightUpd(inputData, hiddenDelta, learningRate)
+      val hiddenWeightUpd = computeWeightUpd(inputData, hiddenDelta, learningRate, batchSize)
       hiddenWeight -= hiddenWeightUpd
 
       hiddenLayerInput.unpersist()
