@@ -120,7 +120,6 @@ object NeuralNetwork extends Logging{
         output: RDD[(BlockID, BDM[Double])],
         labels: RDD[(BlockID, BDV[Int])]): RDD[(BlockID, BDM[Double])] = {
     output.join(labels).mapValues{case(blk, vec) =>
-//      println(s"computeOutputError label vector: ${vec}")
         for(i <- 0 until vec.length) {
           blk(i, vec(i)) -= 1.0
         }
@@ -140,7 +139,6 @@ object NeuralNetwork extends Logging{
         weight: BDM[Double]): RDD[(BlockID, BDM[Double])] = {
     outputDelta.mapPartitions(iter =>
         iter.map{case(blkId, blk) =>
-//          println(s"computeLayerError blk: $blk")
           (blkId, blk * weight)}
     , preservesPartitioning = true)
   }
@@ -156,11 +154,11 @@ object NeuralNetwork extends Logging{
     val dActivation = input.mapPartitions(iter =>
       iter.map{case(blkId, blk) => (blkId, blk.map(x => dSigmoid(x)))}
     , preservesPartitioning = true)
-    dActivation.join(error).map{ case(blkId, (blk1, blk2)) =>
-//      println(s"computeDelta blk1: $blk1")
+    dActivation.join(error).mapPartitions(iter =>
+      iter.map{ case(blkId, (blk1, blk2)) =>
       blk1 :*=  blk2
       (blkId, blk1)
-    }
+    }, preservesPartitioning = true)
   }
 
   /**
@@ -180,8 +178,8 @@ object NeuralNetwork extends Logging{
       iter.map { case (blkId, (inputT, d)) =>
         val tmp = (inputT * d).asInstanceOf[BDM[Double]]
         tmp * (learningRate / batchSize)
-      }
-    ).reduce(_ + _)
+      }, preservesPartitioning = true
+    ).treeReduce(_ + _)
   }
 
 
@@ -236,7 +234,6 @@ object NeuralNetwork extends Logging{
       /** Back Propagate the errors **/
       val selectedLabels = labels.filter{case(blockId, _) => set.contains(blockId.row)}
       val outputError = computeOutputError(outputLayerOut, selectedLabels)
-
       val outputDelta = computeDelta(outputLayerInput, outputError)
 
       // update the hidden layer
