@@ -121,18 +121,15 @@ class DenseVecMatrix(
     require(numCols() == other.numRows(), s"dimension mismatch: ${numCols()} vs ${other.numRows()}")
     val (m, k, n) = splitMode
     val partitioner = new MatrixMultPartitioner(m, k, n)
-    val thisEmits = toBlocks(m, k, n, "right")//.partitionBy(partitioner)
-    val otherEmits = other.toBlocks(m, k, n, "left")//.partitionBy(partitioner)
+    val thisEmits = toBlocks(m, k, n, "right").partitionBy(partitioner)
+    val otherEmits = other.toBlocks(m, k, n, "left").partitionBy(partitioner)
 
     val result = thisEmits.join(otherEmits).mapPartitions(iter =>
       iter.map { case (blkId, (block1, block2)) =>
-        logInfo(s"start multiply")
         val c: BDM[Double] = block1.asInstanceOf[BDM[Double]] * block2.asInstanceOf[BDM[Double]]
         (BlockID(blkId.row, blkId.column), c)
       }
-    ).reduceByKey((a, b) => {
-        logInfo(s"start add")
-        a + b})
+    ).reduceByKey((a, b) => {a + b})
     new BlockMatrix(result, numRows(), other.numCols(), m, n)
   }
 

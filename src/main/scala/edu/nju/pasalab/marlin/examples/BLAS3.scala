@@ -1,5 +1,7 @@
 package edu.nju.pasalab.marlin.examples
 
+import java.util.Calendar
+
 import edu.nju.pasalab.marlin.utils.MTUtils
 
 import breeze.linalg.{DenseMatrix => BDM}
@@ -13,7 +15,7 @@ object BLAS3 {
       println("mode 1 means collect the two matrix to local, and then execute multiplication")
       println("mode 2 means broadcast one of the matrix out, and then execute multiplication")
       println("mode 3 means shuffle the two distributed matrix, and then execute multiplication")
-      println("mode 4 means shuffle the two distributed matrix, but the original implementations")
+//      println("mode 4 means shuffle the two distributed matrix, but the original implementations")
       println("for example: BLAS3 10000 10000 10000 1 5 5 5 ")
       System.exit(1)
     }
@@ -25,13 +27,14 @@ object BLAS3 {
     val colB = args(2).toInt
 
     val mode = args(3).toInt
-    println(s"matrixA: $rowA by $colA ; matrixB: $rowB by $colB, mode: $mode")
+    println(s"matrixA: $rowA by $colA ; matrixB: $rowB by $colB, mode: $mode ;${Calendar.getInstance().getTime}")
     if (mode == 1) {
       val t0 = System.currentTimeMillis()
       val matA = BDM.rand[Double](rowA, colA)
       val matB = BDM.rand[Double](rowB, colB)
       val rsult = matA * matB
-      println(s"no breeze, local multiplication in mode $mode used time ${(System.currentTimeMillis() - t0)} milliseconds")
+      println(s"no breeze, local multiplication in mode $mode used time ${(System.currentTimeMillis() - t0)} millis " +
+        s";${Calendar.getInstance().getTime}")
     }else if (mode == 2) {
       val m = args(4).toInt
       println(s"RowMatrix initialize with $m partitions ")
@@ -40,8 +43,9 @@ object BLAS3 {
       val t0 = System.currentTimeMillis()
       val result = matrixA.multiplyBroadcast(matrixB)
       result.rows.count
-      println(s"multiplication in mode $mode used time ${(System.currentTimeMillis() - t0)} milliseconds")
-    }else if (mode ==3){
+      println(s"multiplication in mode $mode used time ${(System.currentTimeMillis() - t0)} millis " +
+        s";${Calendar.getInstance().getTime}")
+    }else if (mode ==3) {
       val m = args(4).toInt
       val k = args(5).toInt
       val n = args(6).toInt
@@ -50,18 +54,21 @@ object BLAS3 {
       val t0 = System.currentTimeMillis()
       val result = matrixA.multiply(matrixB, (m, k, n))
       result.blocks.count
-      println(s"multiplication in mode $mode used time ${(System.currentTimeMillis() - t0)} milliseconds")
-    }else {
-      val m = args(4).toInt
-      val k = args(5).toInt
-      val n = args(6).toInt
-      val matrixA = MTUtils.randomDenVecMatrix(sc, rowA, colA)
-      val matrixB = MTUtils.randomDenVecMatrix(sc, rowB, colB)
-      val t0 = System.currentTimeMillis()
-      val result = matrixA.oldMultiplySpark(matrixB, (m , k, n))
-      result.blocks.count()
-      println(s"multiplication in mode $mode used time ${(System.currentTimeMillis() - t0)} milliseconds")
+      println(s"multiplication in mode $mode used time ${(System.currentTimeMillis() - t0)} millis " +
+        s";${Calendar.getInstance().getTime}")
     }
+//    }else {
+//      val m = args(4).toInt
+//      val k = args(5).toInt
+//      val n = args(6).toInt
+//      val matrixA = MTUtils.randomDenVecMatrix(sc, rowA, colA)
+//      val matrixB = MTUtils.randomDenVecMatrix(sc, rowB, colB)
+//      val t0 = System.currentTimeMillis()
+//      val result = matrixA.oldMultiplySpark(matrixB, (m , k, n))
+//      result.blocks.count()
+//      println(s"multiplication in mode $mode used time ${(System.currentTimeMillis() - t0)} millis " +
+//        s";${Calendar.getInstance().getTime}")
+//    }
     sc.stop()
 
   }

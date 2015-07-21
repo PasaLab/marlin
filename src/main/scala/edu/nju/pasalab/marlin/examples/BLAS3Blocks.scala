@@ -1,5 +1,7 @@
 package edu.nju.pasalab.marlin.examples
 
+import java.util.Calendar
+
 import edu.nju.pasalab.marlin.utils.MTUtils
 
 import breeze.linalg.{DenseMatrix => BDM}
@@ -25,18 +27,17 @@ object BLAS3Blocks {
     val conf = new SparkConf()
     conf.set("spark.kryo.registrator", "edu.nju.pasalab.marlin.examples.BLAS2Registrator")
     val sc = new SparkContext(conf)
-    println(s"arguments: ${args.mkString(" ")}")
+    println(s"arguments: ${args.mkString(" ")}, ${Calendar.getInstance().getTime()}")
     if (mode == 1) {
       val m = args(4).toInt
       val k = args(5).toInt
-//      val n = args(6).toInt
-//      println(s"arguments: ${args}")
       val matA = MTUtils.randomBlockMatrix(sc, rowA, colA, m, k)
       val matB = BDM.rand[Double](rowB, colB)
       val t0 = System.currentTimeMillis()
       val result = matA.multiply(matB)
       result.blocks.count()
-      println(s"in mode ${mode}, used time ${System.currentTimeMillis() - t0} millis")
+      println(s"in mode ${mode}, used time ${System.currentTimeMillis() - t0} millis,"+
+        s"${Calendar.getInstance().getTime()}")
     } else if (mode == 2) {
       val aRowBlk = args(4).toInt
       val aColBlk = args(5).toInt
@@ -53,7 +54,8 @@ object BLAS3Blocks {
       val blkMatB = matB.toBlockMatrix(k, n)
       val result = blkMatA.multiplySpark(blkMatB)
       result.blocks.count()
-      println(s"in mode ${mode}, used time ${System.currentTimeMillis() - t0} millis")
+      println(s"in mode ${mode}, used time ${System.currentTimeMillis() - t0} millis" +
+        s", ${Calendar.getInstance().getTime()}")
     }else {
       val aRowBlk = args(4).toInt
       val aColBlk = args(5).toInt
@@ -71,7 +73,8 @@ object BLAS3Blocks {
       val blockMatB = matB.toBlockMatrix(k, n)
       val result = blockMatA.multiplySpark(blockMatB)
       result.blocks.count()
-      println(s"in mode ${mode}, used time ${System.currentTimeMillis() - t0} millis")
+      println(s"in mode ${mode}, used time ${System.currentTimeMillis() - t0} millis" +
+        s", ${Calendar.getInstance().getTime()}")
     }
     sc.stop()
   }

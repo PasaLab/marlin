@@ -1,5 +1,7 @@
 package edu.nju.pasalab.marlin.examples
 
+import java.util.Calendar
+
 import edu.nju.pasalab.marlin.utils.MTUtils
 import org.apache.spark.{SparkContext, SparkConf}
 
@@ -26,24 +28,25 @@ object OptimizationComp {
     val conf = new SparkConf()
     conf.set("spark.kryo.registrator", "edu.nju.pasalab.marlin.examples.BLAS2Registrator")
     val sc = new SparkContext(conf)
-    println(s"arguments: ${args.mkString(" ")}")
+    println(s"arguments: ${args.mkString(" ")}, ${Calendar.getInstance().getTime()}")
     val matA = MTUtils.randomDenVecMatrix(sc, rowA, colA)
     val matB = MTUtils.randomDenVecMatrix(sc, rowB, colB)
     val t0 = System.currentTimeMillis()
     if (mode == 1){
       val result = matA.multiplyCoordinateBlock(matB, (m, k, n))
-      result.blocks.count()
+      println(s"result blocks count: ${result.blocks.count()}")
     }else if (mode == 2){
       val result = matA.multiply(matB, (m, k, n))
-      result.blocks.count()
+      println(s"result blocks count: ${result.blocks.count()}")
     }else if (mode == 3){
       val result = matA.multiplyCBjoinBroadcast(matB, (m, k, n))
-      result.blocks.count()
+      println(s"result blocks count: ${result.blocks.count()}")
     }else {
       val result = matA.multiplyOptimize(matB, (m, k, n))
-      result.blocks.count()
+      println(s"result blocks count: ${result.blocks.count()}")
     }
-    println(s"in mode ${mode}, used time ${System.currentTimeMillis() - t0} millis")
+    println(s"in mode $mode, used time ${System.currentTimeMillis() - t0} " +
+      s"millis, ${Calendar.getInstance().getTime()}")
     sc.stop()
   }
 }
