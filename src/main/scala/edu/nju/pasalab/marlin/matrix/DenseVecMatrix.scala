@@ -17,10 +17,9 @@ import scala.collection.parallel.mutable.ParArray
 import org.apache.hadoop.io.{Text, NullWritable}
 import org.apache.hadoop.mapred.TextOutputFormat
 import org.apache.log4j.{Logger, Level}
-import org.apache.spark.SparkContext
+import org.apache.spark.{SparkException, Partitioner, SparkContext, Logging}
 import org.apache.spark.SparkContext._
 import org.apache.spark.rdd.RDD
-import org.apache.spark.Logging
 import org.apache.spark.storage.{JoinBroadcastBlockId, StorageLevel}
 
 import edu.nju.pasalab.marlin.utils.MTUtils
@@ -142,6 +141,38 @@ class DenseVecMatrix(
     }
     new BlockMatrix(result, numRows(), other.numCols(), m, n)
   }
+
+  def multiplyReduceShuffle(other: DenseVecMatrix, splitMode: (Int, Int, Int)): BlockMatrix = {
+    require(numCols() == other.numRows(), s"dimension mismatch: ${numCols()} vs ${other.numRows()}")
+    val (m, k, n) = splitMode
+    val matA = toBlockMatrix(m, k)
+    val matB = other.toBlockMatrix(k, n)
+    val partitioner = new GridPartitioner(m, n,
+      math.max(matA.blocks.partitions.length, matB.blocks.partitions.length))
+    val flatA = matA.blocks.flatMap { case (blkId, block) =>
+      Iterator.tabulate(matB.numBlksByCol())(j => ((blkId.row, j, blkId.column), block))
+    }
+    val flatB = matB.blocks.flatMap { case (blkId, block) =>
+      Iterator.tabulate(matA.numBlksByRow())(i => ((i , blkId.column, blkId.row), block))
+    }
+    val newBlocks: RDD[(BlockID, BDM[Double])] = flatA.cogroup(flatB, partitioner)
+      .flatMap { case ((blockRowIndex, blockColIndex, _), (a, b)) =>
+      if (a.size > 1 || b.size > 1) {
+        throw new SparkException("There are multiple MatrixBlocks with indices: " +
+          s"(${blockRowIndex}, ${blockColIndex}). Please remove them.")
+      }
+      if (a.nonEmpty && b.nonEmpty) {
+        val c: BDM[Double] = a.head * b.head
+        Iterator((BlockID(blockRowIndex, blockColIndex), c))
+      } else {
+        Iterator()
+      }
+    }.reduceByKey(partitioner, (a, b) => a + b)//.reduceByKey(partitioner, (a, b) => a + b)
+    new BlockMatrix(newBlocks, numRows(), other.numCols(), m, n)
+  }
+
+//}
+
 
   // baseline
   def multiplyCoordinateBlock(other: DenseVecMatrix, splitMode: (Int, Int, Int)): BlockMatrix = {
@@ -2239,6 +2270,82 @@ class DenseVecMatrix(
 
 }
 
+
+/**
+ * A grid partitioner, which uses a regular grid to partition coordinates.
+ *
+ * @param rows Number of rows.
+ * @param cols Number of columns.
+ */
+class GridPartitioner(val rows: Int,
+      val cols: Int,
+      val rowsPerPart: Int,
+      val colsPerPart: Int) extends Partitioner {
+
+  def this(rows: Int, cols: Int, suggestedNumPartitions: Int) = {
+    this(rows, cols,
+      math.round(math.max(1.0 / math.sqrt(suggestedNumPartitions) * rows, 1.0)).toInt,
+      math.round(math.max(.0 / math.sqrt(suggestedNumPartitions) * cols, 1.0)).toInt)
+  }
+
+  require(rows > 0)
+  require(cols > 0)
+  require(rowsPerPart > 0)
+  require(colsPerPart > 0)
+
+  private val rowPartitions = math.ceil(rows * 1.0 / rowsPerPart).toInt
+  private val colPartitions = math.ceil(cols * 1.0 / colsPerPart).toInt
+
+  override val numPartitions: Int = rowPartitions * colPartitions
+  println(s"partititoner info: rows: $rows, cols: $cols, " +
+    s"rowsPerpart: $rowsPerPart, colsPerpart: $colsPerPart, numPartitions: $numPartitions")
+
+  /**
+   * Returns the index of the partition the input coordinate belongs to.
+   *
+   * @param key The coordinate (i, j) or a tuple (i, j, k), where k is the inner index used in
+   *            multiplication. k is ignored in computing partitions.
+   * @return The index of the partition, which the coordinate belongs to.
+   */
+  override def getPartition(key: Any): Int = {
+    key match {
+      case (i: Int, j: Int) =>
+        getPartitionId(i, j)
+      case (i: Int, j: Int, _: Int) =>
+        getPartitionId(i, j)
+      case (blkId: BlockID) =>
+        getPartition(blkId.row, blkId.column)
+      case _ =>
+        throw new IllegalArgumentException(s"Unrecognized key: $key.")
+    }
+  }
+
+  /** Partitions sub-matrices as blocks with neighboring sub-matrices. */
+  private def getPartitionId(i: Int, j: Int): Int = {
+    require(0 <= i && i < rows, s"Row index $i out of range [0, $rows).")
+    require(0 <= j && j < cols, s"Column index $j out of range [0, $cols).")
+    i / rowsPerPart + j / colsPerPart * rowPartitions
+  }
+
+  override def equals(obj: Any): Boolean = {
+    obj match {
+      case r: GridPartitioner =>
+        (this.rows == r.rows) && (this.cols == r.cols) &&
+          (this.rowsPerPart == r.rowsPerPart) && (this.colsPerPart == r.colsPerPart)
+      case _ =>
+        false
+    }
+  }
+
+  override def hashCode: Int = {
+    var result = 1
+    val objects = Array(rows, cols, rowsPerPart, colsPerPart)
+    for (element <- objects) {
+      result = 31 * result + (if (element == null) 0 else element.hashCode)
+    }
+    result
+  }
+}
 
 object DenseVecMatrix {
   /**

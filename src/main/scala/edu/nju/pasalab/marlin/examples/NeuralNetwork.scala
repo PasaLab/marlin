@@ -98,7 +98,7 @@ object NeuralNetwork extends Logging{
     val set = new mutable.HashSet[Int]()
     for (i <- 0 until executors) {
       while (set.size < (i + 1) * selectedEachExecutor) {
-        set.+=(uni.sample().toInt + i * executors)
+        set.+=(uni.sample().toInt + i * blockEachExecutor)
       }
     }
     set
