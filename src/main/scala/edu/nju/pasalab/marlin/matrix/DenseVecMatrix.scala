@@ -123,13 +123,23 @@ class DenseVecMatrix(
     val partitioner = new MatrixMultPartitioner(m, k, n)
     val thisEmits = toBlocks(m, k, n, "right").partitionBy(partitioner)
     val otherEmits = other.toBlocks(m, k, n, "left").partitionBy(partitioner)
-
-    val result = thisEmits.join(otherEmits).mapPartitions(iter =>
-      iter.map { case (blkId, (block1, block2)) =>
-        val c: BDM[Double] = block1.asInstanceOf[BDM[Double]] * block2.asInstanceOf[BDM[Double]]
-        (BlockID(blkId.row, blkId.column), c)
-      }
-    ).reduceByKey((a, b) => {a + b})
+    val result = if (k == 1){
+      thisEmits.join(otherEmits).mapPartitions(iter =>
+        iter.map { case (blkId, (block1, block2)) =>
+          val c: BDM[Double] = block1.asInstanceOf[BDM[Double]] * block2.asInstanceOf[BDM[Double]]
+          (BlockID(blkId.row, blkId.column), c)
+        }
+      )
+    } else {
+      thisEmits.join(otherEmits).mapPartitions(iter =>
+        iter.map { case (blkId, (block1, block2)) =>
+          val c: BDM[Double] = block1.asInstanceOf[BDM[Double]] * block2.asInstanceOf[BDM[Double]]
+          (BlockID(blkId.row, blkId.column), c)
+        }
+      ).reduceByKey((a, b) => {
+        a + b
+      })
+    }
     new BlockMatrix(result, numRows(), other.numCols(), m, n)
   }
 

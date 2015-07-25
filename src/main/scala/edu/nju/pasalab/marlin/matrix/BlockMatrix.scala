@@ -492,7 +492,10 @@ class BlockMatrix(
         val startCol = blkId.column * colBlkSize
         val endCol = if ((blkId.column + 1) * colBlkSize > numCols()) {
           numCols().toInt
-        }else (blkId.column + 1) * colBlkSize
+        }else {
+          (blkId.column + 1) * colBlkSize
+        }
+        println(s"during Blk * BC, startCol: $startCol, endCol: $endCol")
         (BlockID(blkId.row, 0), (blk.asInstanceOf[BDM[Double]] *
           Bb.value(startCol until endCol, ::)).asInstanceOf[BDM[Double]])
       }.reduceByKey(_ + _)

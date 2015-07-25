@@ -7,8 +7,9 @@ import org.apache.spark.{SparkContext, SparkConf}
 
 object BroadcastOptimization {
   def main(args: Array[String]) {
-    if (args.length < 4) {
-      println("usage: OptimizationComp <matrixA row length> <matrixA column length> <matrixB column length> <mode> ")
+    if (args.length < 5) {
+      println("usage: OptimizationComp <matrixA row length> <matrixA column length> <matrixB column length> " +
+        "<mode> <partitions>")
       println("mode 1 means each row multiply the broadcast matrix B")
       println("mode 2 means transform the row-partition to local matrix and multiply the broadcast matrix B")
       System.exit(1)
@@ -18,13 +19,14 @@ object BroadcastOptimization {
     val colA, rowB = args(1).toInt
     val colB = args(2).toInt
     val mode = args(3).toInt
+    val partitions = args(4).toInt
 
     val conf = new SparkConf()
     conf.set("spark.kryo.registrator", "edu.nju.pasalab.marlin.examples.BLAS2Registrator")
     val sc = new SparkContext(conf)
     println(s"arguments: ${args.mkString(" ")}")
 
-    val matA = MTUtils.randomDenVecMatrix(sc, rowA, colA)
+    val matA = MTUtils.randomDenVecMatrix(sc, rowA, colA, partitions)
     val matB = BDM.rand[Double](rowB, colB)
     val t0 = System.currentTimeMillis()
     if (mode == 1){
