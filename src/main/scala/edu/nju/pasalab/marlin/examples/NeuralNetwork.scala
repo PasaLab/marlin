@@ -184,19 +184,19 @@ object NeuralNetwork extends Logging{
 
 
   def main(args: Array[String]) {
-    if (args.length < 8) {
-      println("usage: NeuralNetwork <input path> <output path> <iterations>  " +
+    if (args.length < 7) {
+      println("usage: NeuralNetwork <input path> <iterations>  " +
         "<learningRate> <executors> <block on each executor> " +
         "<selected blocks on each executor> {<layer unit num> ...}")
       System.exit(-1)
     }
     val input = args(0)
-    val iterations = args(2).toInt
-    val learningRate = args(3).toDouble
-    val executors = args(4).toInt
-    val blkEachExecutor = args(5).toInt
-    val selectedEachExecutor = args(6).toInt
-    val layerNum = args(7).toInt
+    val iterations = args(1).toInt
+    val learningRate = args(2).toDouble
+    val executors = args(3).toInt
+    val blkEachExecutor = args(4).toInt
+    val selectedEachExecutor = args(5).toInt
+    val layerNum = args(6).toInt
     val conf = new SparkConf()//.setMaster("local[2]").setAppName("test NN local")
     val sc = new SparkContext(conf)
     val vectorLen = 28 * 28
