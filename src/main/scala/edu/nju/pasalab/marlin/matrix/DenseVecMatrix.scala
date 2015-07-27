@@ -9,6 +9,8 @@ import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.spark.annotation.Experimental
 import org.apache.spark.broadcast.JoinBroadcast
+import org.apache.spark.sql.types.{LongType, StructType, DoubleType, StructField}
+import org.apache.spark.sql.{DataFrame, Row, SQLContext}
 
 import scala.collection.mutable
 import scala.collection.mutable.{ArrayBuffer, ArrayBuilder}
@@ -171,7 +173,6 @@ class DenseVecMatrix(
     new BlockMatrix(newBlocks, numRows(), other.numCols(), m, n)
   }
 
-//}
 
 
   // baseline
@@ -1944,6 +1945,23 @@ class DenseVecMatrix(
       (blkId, matrix)
     }
     new BlockMatrix(blocks, numRows(), numCols(), newBlksByRow, newBlksByCol)
+  }
+
+  def toDataFrame(sqlContext: SQLContext,
+                  schemaStringArray : Array[String],
+                  rowNumWrite: Boolean = true): DataFrame ={
+    val sch = schemaStringArray.map(fieldName => StructField(fieldName, DoubleType, true))
+    val schema = if (rowNumWrite) {
+      StructType(StructField("__rowNum", LongType, true) +: sch)
+    } else {
+      StructType(sch)
+    }
+    val rowsRDD = if (rowNumWrite) {
+      rows.map{case(ind, row) => Row((ind +: row.toArray) :_ *)}
+    }else {
+      rows.map{case(ind, row) => Row((row.toArray) :_*)}
+    }
+    sqlContext.createDataFrame(rowsRDD, schema)
   }
 
   /**
