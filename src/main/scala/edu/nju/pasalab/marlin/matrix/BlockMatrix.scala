@@ -361,7 +361,7 @@ class BlockMatrix(
    * This method still works in progress!
    * Get the inverse result of the matrix
    */
-  def inverse(): DenseVecMatrix = {
+  def inverse(): BlockMatrix = {
     toDenseVecMatrix().inverse()
   }
   /**

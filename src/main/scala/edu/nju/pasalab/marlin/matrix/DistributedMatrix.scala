@@ -54,7 +54,7 @@ trait DistributedMatrix extends Serializable {
   def transpose(): BlockMatrix
 
   /** Get the inverse of a matrix, this still works in progress */
-  def inverse(): DenseVecMatrix
+  def inverse(): BlockMatrix
 
   /** Column bind to generate a new distributed matrix */
   def cBind(other: DistributedMatrix): DistributedMatrix

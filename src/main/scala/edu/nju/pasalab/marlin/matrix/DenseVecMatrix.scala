@@ -16,6 +16,8 @@ import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.Logging
+import org.apache.spark.HashPartitioner
+
 import org.apache.spark.storage.StorageLevel
 
 import edu.nju.pasalab.marlin.utils.MTUtils
@@ -250,265 +252,8 @@ class DenseVecMatrix(
     new DenseVecMatrix(result, numRows(), numCols())
   }
 
-  /**
-   * This is an experimental implementation of block LU decomposition. The method is still in progress.
-   * LU decompose this DenseVecMatrix to generate a lower triangular matrix L
-   * and a upper triangular matrix U and a permutation matrix. i.e. LU = PA
-   *
-   * @param mode whether to calculate in a local or a distributed manner
-   * @return a triple(lower triangular matrix, upper triangular matrix, row permutation array)
-   */
-  def blockLUDecompose(mode: String = "auto"): (DenseVecMatrix, DenseVecMatrix, Array[Int]) = {
-    def getFactor(n: Long, m: Long): Long = {
-      if (n % m == 0) m
-      else getFactor(n, m - 1)
-    }
-    require(numRows == numCols,
-      s"currently we only support square matrix: ${numRows} vs ${numCols}")
-
-    object LUmode extends Enumeration {
-      val LocalBreeze, DistSpark = Value
-    }
-    val computeMode = mode match {
-      case "auto" => if (numRows > 6000L) {
-        LUmode.DistSpark
-      } else {
-        LUmode.LocalBreeze
-      }
-      case "breeze" => LUmode.LocalBreeze
-      case "dist" => LUmode.DistSpark
-      case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
-    }
-    val (lower: DenseVecMatrix, upper: DenseVecMatrix, permutation: Array[Int]) = computeMode match {
-      case LUmode.LocalBreeze => {
-        val brz = toBreeze()
-        val lu = brzLU(brz)
-        val l = breeze.linalg.lowerTriangular(lu._1).t
-        for (i <- 0 until l.rows) {
-          l.update(i, i, 1.0)
-        }
-        val u = breeze.linalg.upperTriangular(lu._1).t
-        val uBro = rows.sparkContext.broadcast(u)
-        val uDense = rows.mapPartitions(iter => {
-          iter.map(t =>
-            (t._1, Vectors.dense(uBro.value(::, t._1.toInt).toArray)))
-        })
-        val lBro = rows.sparkContext.broadcast(l)
-        val lDense = rows.mapPartitions(iter => {
-          iter.map(t =>
-            (t._1, Vectors.dense(lBro.value(::, t._1.toInt).toArray)))
-        })
-        val pArray = (0 until lu._2.length).toArray
-        for (i <- 0 until lu._2.length) {
-          val tmp = pArray(i)
-          pArray(i) = pArray(lu._2(i) - 1)
-          pArray(lu._2(i) - 1) = tmp
-        }
-        (new DenseVecMatrix(lDense, numRows, numRows), new DenseVecMatrix(uDense, numRows, numRows), pArray)
-      }
-
-      case LUmode.DistSpark => {
-        //val numSubRows = getFactor(numRows, Math.sqrt(numRows).toLong).toInt
-        val numSubRows = 1000
-        val numSubRows2 = (numRows - numSubRows).toInt
-
-        val subMatrix11 = getSubMatrix(0, numSubRows - 1, 0, numSubRows.toInt - 1)
-        val subMatrix12 = getSubMatrix(0, numSubRows - 1, numSubRows.toInt, numCols.toInt - 1)
-        val subMatrix21 = getSubMatrix(numSubRows.toInt, numRows - 1, 0, numSubRows.toInt - 1)
-        val subMatrix22 = getSubMatrix(numSubRows.toInt, numRows - 1, numSubRows.toInt, numCols.toInt - 1)
-        val (lMatrix11, uMatrix11, pMatrix11) = subMatrix11.blockLUDecompose("auto")
-
-        val u = subMatrix21.rows.context.broadcast(uMatrix11.toBreeze())
-        val lMatrix21Rdd = subMatrix21.rows.mapPartitions(iter => {
-          iter.map { t =>
-            val array = t._2.toArray.clone()
-            for (j <- 0 until array.length) {
-              for (k <- 0 until j) {
-                array(j) = array(j) - u.value.apply(k, j) * array(k)
-              }
-              array(j) = array(j) / u.value.apply(j, j)
-            }
-            (t._1, Vectors.dense(array))
-          }
-        })
-        var lMatrix21 = new DenseVecMatrix(lMatrix21Rdd, numSubRows2, numSubRows)
-
-        val tmp = subMatrix12.rowExchange(pMatrix11)
-          .transpose().toDenseVecMatrix()
-        val l = tmp.rows.context.broadcast(lMatrix11.toBreeze())
-        val uMatrix12Rdd = tmp
-          .rows.mapPartitions(iter => {
-          iter.map { t =>
-            val array = t._2.toArray.clone()
-            for (j <- 0 until numSubRows) {
-              for (k <- 0 until j) {
-                array(j) = array(j) - l.value.apply(j, k) * array(k)
-              }
-              array(j) = array(j) / l.value.apply(j, j)
-            }
-            (t._1, Vectors.dense(array))
-          }
-        })
-        val uMatrix12 = new DenseVecMatrix(uMatrix12Rdd, numSubRows2, numSubRows).transpose().toDenseVecMatrix()
-
-        val sc = rows.context
-        val cores = if (!sc.getConf.getOption("spark.default.parallelism").isEmpty) {
-          sc.getConf.get("spark.default.parallelism").toInt
-        } else {
-          sc.defaultMinPartitions
-        }
-        val (lMatrix22, uMatrix22, pMatrix22) = subMatrix22
-          .subtract(lMatrix21.multiply(uMatrix12, cores)).blockLUDecompose("auto")
-
-        lMatrix21 = lMatrix21.rowExchange(pMatrix22)
-
-        val lUpper = lMatrix11.rows
-          .map(t => (t._1, Vectors.fromBreeze(BDV.vertcat(t._2.toBreeze.asInstanceOf[BDV[Double]], BDV.zeros[Double](numSubRows2)))))
-        val lLower = lMatrix21.rows
-          .join(lMatrix22.rows)
-          .map { t =>
-          val array1 = t._2._1.toArray
-          val array2 = t._2._2.toArray
-          (t._1 + numSubRows, Vectors.dense(array1 ++ array2))
-        }
-        val LMatrix = new DenseVecMatrix(lUpper.union(lLower), numRows(), numRows())
-
-        val UUpper = uMatrix11.rows
-          .join(uMatrix12.rows)
-          .map { t =>
-          val array1 = t._2._1.toArray
-          val array2 = t._2._2.toArray
-          (t._1, Vectors.dense(array1 ++ array2))
-        }
-        val ULower = uMatrix22.rows
-          .map(t => (t._1 + numSubRows, Vectors.fromBreeze(BDV.vertcat(BDV.zeros[Double](numSubRows), t._2.toBreeze.asInstanceOf[BDV[Double]]))))
-
-        val UMatrix = new DenseVecMatrix(UUpper.union(ULower), numRows(), numRows())
-
-        val PMatrix = pMatrix11 ++ (pMatrix22.map {
-          _ + numSubRows
-        })
-
-        (LMatrix, UMatrix, PMatrix)
-      }
-    }
-    (lower, upper, permutation)
-
-  }
-
-  /**
-   * This function still works in progress. it needs to do more work
-   * LU decompose this DenseVecMatrix to generate a lower triangular matrix L
-   * and a upper triangular matrix U
-   *
-   * @return a pair (lower triangular matrix, upper triangular matrix)
-   */
-  def luDecompose(mode: String = "auto"): (DenseVecMatrix, DenseVecMatrix) = {
-    val iterations = numRows
-    require(iterations == numCols,
-      s"currently we only support square matrix: ${iterations} vs ${numCols}")
-    if (!rows.context.getCheckpointDir.isDefined) {
-      println("Waning, checkpointdir is not set! We suggest you set it before running luDecopose")
-    }
-    /*
-    object LUmode extends Enumeration {
-      val LocalBreeze, DistSpark = Value
-    }
-    val computeMode = mode match {
-      case "auto" => if (iterations > 3200L) {
-        LUmode.DistSpark
-      } else {
-        LUmode.LocalBreeze
-      }
-      case "breeze" => LUmode.LocalBreeze
-      case "dist" => LUmode.DistSpark
-      case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
-    }
-
-    val (lower: DenseVecMatrix, upper: DenseVecMatrix, permutation) = computeMode match {
-      case LUmode.LocalBreeze =>
-        val temp = brzLU(toBreeze())
-        val l = breeze.linalg.lowerTriangular(temp._1)
-        for (i <- 0 until l.rows) {
-          l.update(i, i, 1.0)
-        }
-        val u = breeze.linalg.upperTriangular(temp._1) 
-        (Matrices.fromBreeze(l), Matrices.fromBreeze(u), temp._2)
-      case LUmode.DistSpark => 
-        
-        val subNumRows = numRows / 2;
-        val subMatrixA1 = getSubMatrix(0, subNumRows, 0, subNumRows.toInt)
-        val subMatrixA2 = getSubMatrix(0, subNumRows, subNumRows.toInt + 1, numCols.toInt)
-        val subMatrixA3 = getSubMatrix(subNumRows.toInt + 1, numRows, 0, subNumRows.toInt)
-        val subMatrixA4 = getSubMatrix(subNumRows.toInt + 1, numRows, subNumRows.toInt + 1, numCols.toInt)     
-        val (l1, u1, p1) = subMatrixA1.luDecompose("auto") 
-        val u2 = 
-        
-    }
-    * 
-    */
-
-    /**copy construct a DenseVecMatrix to maintain the original matrix **/
-    var mat = new DenseVecMatrix(rows.map(t => {
-      val array = Array.ofDim[Double](numCols().toInt)
-      val v = t._2.toArray
-      for (k <- 0 until v.length) {
-        array(k) = v.apply(k)
-      }
-      (t._1, Vectors.dense(array))
-    }))
-
-    val num = iterations.toInt
-    var lowerMat = MTUtils.zerosDenVecMatrix(rows.context, numRows(), numCols().toInt)
-    for (i <- 0 until num) {
-      val vector = mat.rows.filter(t => t._1.toInt == i).map(t => t._2).first()
-      val c = mat.rows.context.broadcast(vector.apply(i))
-      val broadVec = mat.rows.context.broadcast(vector)
-      //TODO: here we omit the compution of L
-      //TODO: here collect() is too much cost, find another method
-      val lupdate = mat.rows.map(t => (t._1, t._2.toArray.apply(i) / c.value)).collect()
-      val updateVec = Array.ofDim[Double](num)
-      for (l <- lupdate) {
-        updateVec.update(l._1.toInt, l._2)
-      }
-      val broadLV = mat.rows.context.broadcast(updateVec)
-      val lresult = lowerMat.rows.mapPartitions(iter => {
-        iter.map { t =>
-          if (t._1.toInt >= i) {
-            val vec = t._2.toArray
-            vec.update(i, broadLV.value.apply(t._1.toInt))
-            (t._1, Vectors.dense(vec))
-          } else t
-        }
-      }, true)
-      lowerMat = new DenseVecMatrix(lresult, numRows(), numCols())
-      //cache the lower matrix to speed the computation
-      val result = mat.rows.mapPartitions(iter => {
-        iter.map(t => {
-          if (t._1.toInt > i) {
-            val vec = t._2.toArray
-            //            val lupdate = vec.apply(i) / c.value
-            val mfactor = -vec.apply(i) / c.value
-            for (k <- 0 until vec.length) {
-              vec.update(k, vec.apply(k) + mfactor * broadVec.value.apply(k))
-            }
-            (t._1, Vectors.dense(vec))
-          } else t
-        })
-      }, true)
-      mat = new DenseVecMatrix(result, numRows(), numCols())
-      //cache the matrix to speed the computation
-      //      mat.rows.cache()
-      if (i % 50 == 0) {
-        println("process has finish: " + i)
-        println(Calendar.getInstance().getTime)
-      }
-      if (i % 2000 == 0) {
-        if (mat.rows.context.getCheckpointDir.isDefined)
-          mat.rows.checkpoint()
-      }
-    }
-    (lowerMat, mat)
+  def inverse(): BlockMatrix = {
+    blockInverse("auto")
   }
 
   /**
@@ -516,343 +261,209 @@ class DenseVecMatrix(
    * Cholesky decompose this DenseVecMatrix to generate a lower triangular matrix L
    * where A = L * L.transpose
    *
-   * @param mode in which manner the computation should take place, local or distributed
+   * @param mode  in which manner should the result be calculated, locally or distributed
    * @return denseVecMatrix L where A = L * L.transpose
    */
-  def blockCholeskyDecompose(mode: String = "auto"): (DenseVecMatrix) = {
-    def getFactor(n: Long, m: Long): Long = {
-      if (n % m == 0) m
-      else getFactor(n, m - 1)
-    }
-
-    require(numRows == numCols,
-      s"currently we only support square matrix: ${numRows} vs ${numCols}")
-
-    object CholeskyMode extends Enumeration {
+def blockLUDecompose(mode: String = "auto"): (BlockMatrix, Array[Int]) = {
+    require(numRows() == numCols(),
+      s"LU decompose only support square matrix: ${numRows()} v.s ${numCols()}")
+    object LUmode extends Enumeration {
       val LocalBreeze, DistSpark = Value
     }
     val computeMode = mode match {
       case "auto" => if (numRows > 6000L) {
-        CholeskyMode.DistSpark
+        LUmode.DistSpark
       } else {
-        CholeskyMode.LocalBreeze
+        LUmode.LocalBreeze
       }
-      case "breeze" => CholeskyMode.LocalBreeze
-      case "dist" => CholeskyMode.DistSpark
+      case "breeze" => LUmode.LocalBreeze
+      case "dist" => LUmode.DistSpark
       case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
     }
-
-    val lower: DenseVecMatrix = computeMode match {
-      case CholeskyMode.LocalBreeze => {
-        printf("in local mode, appear at most once")
+    val (luResult: BlockMatrix, perm: Array[Int]) = computeMode match {
+      case LUmode.LocalBreeze => {
         val brz = toBreeze()
-        val l = brzCholesky(brz).t
-        val lBro = rows.sparkContext.broadcast(l)
-        val lDense = rows.mapPartitions(iter => {
-          iter.map(t =>
-            (t._1, Vectors.dense(lBro.value(::, t._1.toInt).toArray)))
-        })
-        new DenseVecMatrix(lDense, numRows, numRows)
+        val lu = brzLU(brz)
+        val pArray = (0 until lu._2.length).toArray
+        for (i <- 0 until lu._2.length) {
+          val tmp = pArray(i)
+          pArray(i) = pArray(lu._2(i) - 1)
+          pArray(lu._2(i) - 1) = tmp
+        }
+        val blk = rows.context.parallelize(Seq((new BlockID(0, 0), lu._1)), 1)
+        (new BlockMatrix(blk, lu._1.rows, lu._1.cols, 1, 1), pArray)
       }
 
+      case LUmode.DistSpark => {
+        val subMatrixBaseSize = rows.context.getConf.getInt("marlin.lu.basesize", 1000)
+        val numBlksByRow, numBlksByCol = math.ceil(numRows().toDouble / subMatrixBaseSize.toDouble).toInt
+        val subMatrixBase = math.ceil(numRows().toDouble / numBlksByRow.toDouble).toInt
+        val pArray = Array.ofDim[Int](numRows().toInt)
 
-      case CholeskyMode.DistSpark => {
-        //val numSubRows = getFactor(numRows, Math.sqrt(numRows).toLong).toInt
-        val numSubRows = 1000
-        val numSubRows2 = (numRows - numSubRows).toInt
+        val partitioner = new HashPartitioner(2 * getClusterCores())
+        var blkMat = this.toBlockMatrix(numBlksByRow, numBlksByCol).blocks //.partitionBy(partitioner)
 
-        val subMatrix11 = getSubMatrix(0, numSubRows - 1, 0, numSubRows.toInt - 1)
-        val subMatrix21 = getSubMatrix(numSubRows.toInt, numRows - 1, 0, numSubRows.toInt - 1)
-        val subMatrix22 = getSubMatrix(numSubRows.toInt, numRows - 1, numSubRows.toInt, numCols.toInt - 1)
+        blkMat.cache()
+        println("numBlkByRow is: " + numBlksByRow)
+        println("original partitioner: " + partitioner.toString())
+        val scatterRdds = Array.ofDim[RDD[(BlockID, BDM[Double])]](numBlksByRow - 1, 3)
 
-
-        val brzlMatrix11 = brzCholesky(subMatrix11.toBreeze()).t
-        val lTranspose = subMatrix21.rows.context.broadcast(brzlMatrix11)
-        val lMatrix21Rdd = subMatrix21
-          .rows.mapPartitions(iter => {
-          iter.map { t =>
-            val array = t._2.toArray.clone()
-            for (j <- 0 until numSubRows) {
-              for (k <- 0 until j) {
-                array(j) = array(j) - lTranspose.value.apply(j, k) * array(k)
-              }
-              array(j) = array(j) / lTranspose.value.apply(j, j)
+        for (i <- 0 until numBlksByRow) {
+          val matFirst = blkMat.filter(block => block._1.row == i && block._1.column == i)
+          if (i == numBlksByRow - 1) {
+            val (lu, p) = brzLU(matFirst.collect().head._2)
+            val perm = (0 until p.length).toArray
+            for (i <- 0 until perm.length) {
+              val tmp = perm(i)
+              perm(i) = perm(p(i) - 1)
+              perm(p(i) - 1) = tmp
             }
-            (t._1, Vectors.dense(array))
+            for (j <- 0 until perm.length) {
+              pArray(i * subMatrixBase + j) = i * subMatrixBase + perm(j)
+            }
+            blkMat = matFirst.mapValues(block => lu)
+          } else {
+            val matSecond = blkMat.filter(block => block._1.row == i && block._1.column > i)
+            val matThird = blkMat.filter(block => block._1.row > i && block._1.column == i)
+            val matForth = blkMat.filter(block => block._1.column > i && block._1.row > i)
+
+            val bdata = rows.context.broadcast(matFirst.collect().head._2)
+
+            logInfo(s"LU iteration: $i")
+            val t0 = System.currentTimeMillis()
+            val (mat, p) = brzLU(bdata.value)
+            logInfo(s"in iteration $i, in master lu takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
+
+            val l = breeze.linalg.lowerTriangular(mat)
+            for (i <- 0 until l.rows) {
+              l.update(i, i, 1.0)
+            }
+
+            val perm = (0 until p.length).toArray
+            for (i <- 0 until perm.length) {
+              val tmp = perm(i)
+              perm(i) = perm(p(i) - 1)
+              perm(p(i) - 1) = tmp
+            }
+
+            for (j <- 0 until perm.length) {
+              pArray(i * subMatrixBase + j) = i * subMatrixBase + perm(j)
+            }
+
+            val blup = rows.context.broadcast((l, breeze.linalg.upperTriangular(mat), perm))
+
+            scatterRdds(i)(0) = matFirst.cache()
+            scatterRdds(i)(1) = matSecond.mapValues(block => {
+              val p = blup.value._3
+              val l = blup.value._1
+              val permutation = BDM.zeros[Double](p.length, p.length)
+              for (j <- 0 until p.length) {
+                permutation.update(j, p(j), 1.0)
+              }
+              val t0 = System.currentTimeMillis()
+              val tmp = (l \ permutation) * block
+              logInfo(s"in iteration $i, computation for A2 takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
+              tmp
+            }).cache()
+            scatterRdds(i)(2) = matThird.mapValues(block => {
+              val t0 = System.currentTimeMillis()
+              val tmp = block * brzInv(blup.value._2)
+              logInfo(s"in iteration $i, computation for A3 takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
+              tmp
+            }).cache()
+
+            val nSplitNum, mSplitNum = numBlksByRow - (i + 1)
+            val kSplitNum = 1
+
+            val matThirdEmit = matThird
+              .mapPartitions({
+              iter =>
+                iter.flatMap(t => {
+                  val array = Array.ofDim[(BlockID, BDM[Double])](nSplitNum)
+                  for (j <- 0 until nSplitNum) {
+                    //val seq = t._1.row * nSplitNum * kSplitNum + (j+i+1) * kSplitNum + t._1.column
+                    val seq = 0
+                    array(j) = (new BlockID(t._1.row, (j + i + 1), seq), t._2)
+                  }
+                  array
+                })
+            }) //.partitionBy(partitioner)
+
+            val matSecondEmit = matSecond
+              .mapPartitions({
+              iter =>
+                iter.flatMap(t => {
+                  val array = Array.ofDim[(BlockID, BDM[Double])](mSplitNum)
+                  for (j <- 0 until mSplitNum) {
+                    //val seq = (j + i + 1) * nSplitNum * kSplitNum + t._1.column * kSplitNum + t._1.row
+                    val seq = 0
+                    array(j) = (new BlockID(j + i + 1, t._1.column, seq), t._2)
+                  }
+                  array
+                })
+            }) //.partitionBy(partitioner)
+            println("matThirdEmit and matSecondEmit same partitioner? " + (matSecondEmit.partitioner == matThirdEmit.partitioner).toString)
+
+            val mult = matThirdEmit.join(matSecondEmit, partitioner)
+              .mapValues(t => {
+              val mat = (t._1.asInstanceOf[BDM[Double]] * (bdata.value \ t._2.asInstanceOf[BDM[Double]]))
+                .asInstanceOf[BDM[Double]]
+              (mat)
+            }) //.partitionBy(partitioner)
+            blkMat = matForth
+              .join(mult, partitioner).mapValues(t => t._1 - t._2) //.partitionBy(partitioner).cache()
+              .cache()
+            //println(blkMat.toDebugString)
           }
-        })
-        val lMatrix21 = new DenseVecMatrix(lMatrix21Rdd, numSubRows2, numSubRows)
-
-        val lDense = subMatrix11.rows.mapPartitions(iter => {
-          iter.map(t =>
-            (t._1, Vectors.dense(lTranspose.value(::, t._1.toInt).toArray)))
-        })
-        val lMatrix11 = new DenseVecMatrix(lDense, numRows, numRows)
-
-        val sc = rows.context
-        val cores = if (!sc.getConf.getOption("spark.default.parallelism").isEmpty) {
-          sc.getConf.get("spark.default.parallelism").toInt
-        } else {
-          sc.defaultMinPartitions
         }
 
-        val lMatrix22 = subMatrix22
-          .subtract(lMatrix21.multiply(lMatrix21.transpose(), cores)).blockCholeskyDecompose("auto")
-
-        val lUpper = lMatrix11.rows
-          .map(t => (t._1, Vectors.fromBreeze(BDV.vertcat(t._2.toBreeze.asInstanceOf[BDV[Double]], BDV.zeros[Double](numSubRows2)))))
-
-        val lLower = lMatrix21.rows
-          .join(lMatrix22.rows)
-          .map { t =>
-          val array1 = t._2._1.toArray
-          val array2 = t._2._2.toArray
-          (t._1 + numSubRows, Vectors.dense(array1 ++ array2))
+        for (i <- 0 until numBlksByRow - 1) {
+          for (j <- 0 until 3)
+            blkMat = blkMat.union(scatterRdds(i)(j))
         }
-        val LMatrix = new DenseVecMatrix(lUpper.union(lLower), numRows(), numRows())
-        LMatrix
+        //blkMat.partitionBy(partitioner)
+
+        val bpArray = blkMat.context.broadcast(pArray)
+        blkMat = blkMat.mapPartitions(iter =>
+          iter.map(block =>
+            if (block._1.row > block._1.column) {
+              val array = bpArray.value
+                .slice(subMatrixBase * block._1.row,
+                  if (block._1.row == numBlksByRow - 1) {
+                    numRows().toInt
+                  }
+                  else {
+                    subMatrixBase * block._1.row + subMatrixBase
+                  })
+
+              val permutation = BDM.zeros[Double](array.length, array.length)
+              for (j <- 0 until array.length) {
+                permutation.update(j, array(j) - subMatrixBase * block._1.row, 1.0)
+              }
+              (block._1, permutation * block._2)
+            } else {
+              block
+            }
+          ), true).cache()
+        val result = new BlockMatrix(blkMat, numRows(), numCols(), numBlksByRow, numBlksByCol)
+        //  println("cnt:" + result.blocks.count())
+        (result, pArray)
       }
     }
-    lower
+
+    (luResult, perm)
   }
 
   /**
    * This function is still in progress.
    * get the result of cholesky decomposition of this DenseVecMatrix
    *
+   * @param mode  in which manner should the result be calculated, locally or distributed
    * @return matrix A, where A * A' = Matrix
    */
-  def choleskyDecompose(mode: String = "auto"): DenseVecMatrix = {
-    val iterations = numRows
-    require(iterations == numCols,
-      s"currently we only support square matrix: ${iterations} vs ${numCols}")
-    if (!rows.context.getCheckpointDir.isDefined) {
-      println("Waning, checkpointdir is not set! We suggest you set it before running luDecopose")
-    }
-    // object LUmode extends Enumeration {
-    // val LocalBreeze, DistSpark = Value
-    // }
-    // val computeMode = mode match {
-    // case "auto" => if ( iterations > 10000L){
-    // LUmode.DistSpark
-    // }else {
-    // LUmode.LocalBreeze
-    // }
-    // case "breeze" => LUmode.LocalBreeze
-    // case "dist" => LUmode.DistSpark
-    // case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
-    // }
-    //
-    // val (lower: IndexMatrix, upper: IndexMatrix) = computeMode match {
-    // case LUmode.LocalBreeze =>
-    // val temp = bLU(toBreeze())
-    // Matrices.fromBreeze(breeze.linalg.lowerTriangular(temp._1))
-    // }
-    //
-    /**copy construct a DenseVecMatrix to maintain the original matrix **/
-    var mat = new DenseVecMatrix(rows.map(t => {
-      val array = Array.ofDim[Double](numCols().toInt)
-      val v = t._2.toArray
-      for (k <- 0 until v.length) {
-        array(k) = v.apply(k)
-      }
-      (t._1, Vectors.dense(array))
-    }))
-
-    val num = iterations.toInt
-    var lowerMat = MTUtils.zerosDenVecMatrix(rows.context, numRows(), numCols().toInt)
-    for (i <- 0 until num) {
-      val rowVector = mat.rows.filter(t => t._1.toInt == i).map(t => t._2).first()
-      val colVector = mat.rows.map(t => t._2.toArray.apply(i)).collect()
-      val c = mat.rows.context.broadcast(rowVector.apply(i))
-      val broadRowVec = mat.rows.context.broadcast(rowVector)
-      val broadColVec = mat.rows.context.broadcast(colVector)
-      val result = mat.rows.mapPartitions(iter => {
-        iter.map(t =>
-          if (t._1.toInt >= i) {
-            val vec = t._2.toArray
-            if (t._1.toInt == i) {
-              for (k <- i until vec.length)
-                vec.update(k, vec(k) / Math.sqrt(c.value))
-            } else {
-              vec.update(i, vec(i) / Math.sqrt(c.value))
-              for (k <- i + 1 until vec.length)
-                vec.update(k, vec(k) - broadColVec.value.apply(t._1.toInt) * broadRowVec.value.apply(k) / c.value)
-            }
-            (t._1, Vectors.dense(vec))
-          } else t)
-      }, true)
-      mat = new DenseVecMatrix(result, numRows(), numCols())
-    }
-    mat
-  }
-
-  def inverse(): DenseVecMatrix = {
-    inverse("auto")
-  }
-
-  /**
-   * get the inverse of this DenseVecMatrix
-   *
-   * @return the inverse matrix
-   */
-  def blockInverse(): DenseVecMatrix = {
-    val (l, u, p) = blockLUDecompose("auto")
-    val lInverse = l.inverseTriangular("auto", "lower")
-    val uInverse = u.inverseTriangular("auto", "upper")
-    val sc = rows.context
-
-    val cores = if (!sc.getConf.getOption("spark.default.parallelism").isEmpty) {
-      sc.getConf.get("spark.default.parallelism").toInt
-    } else {
-      sc.defaultMinPartitions
-    }
-    val tmp = uInverse.multiply(lInverse, cores).toDenseVecMatrix()
-    val bp = tmp.rows.context.broadcast(p)
-    val pivotRdd = tmp.rows.mapPartitions (iter => {
-      iter.map{ t =>
-        val array = Array.ofDim[Double](numRows().toInt)
-        array(bp.value(t._1.toInt)) = 1
-        (t._1, Vectors.dense(array))
-      }
-    })
-    val pivot = new DenseVecMatrix(pivotRdd, numRows(), numCols())
-    val result = tmp.multiply(pivot, cores).toDenseVecMatrix()
-    result
-  }
-
-  /**
-   * This function still works in progress.
-   * get the inverse of this DenseVecMatrix
-   *
-   * @return the inverse of the square matrix
-   */
-  def inverse(mode: String = "auto"): DenseVecMatrix = {
-    val iterations = numRows()
-    require(iterations == numCols(),
-      s"currently we only support square matrix: ${iterations} vs ${numCols}")
-    if (!rows.context.getCheckpointDir.isDefined) {
-      println("Waning, checkpointdir is not set! We suggest you set it before running luDecopose")
-    }
-    /**copy construct a DenseVecMatrix to maintain the original matrix **/
-    var matr = new DenseVecMatrix(rows.map(t => {
-      val array = Array.ofDim[Double](numCols().toInt)
-      val v = t._2.toArray
-      for (k <- 0 until v.length) {
-        array(k) = v.apply(k)
-      }
-      (t._1, Vectors.dense(array))
-    }))
-
-    val num = iterations.toInt
-    val permutation = Array.range(0, num)
-
-    for (i <- 0 until num) {
-
-      val updateVec = matr.rows.map(t => (t._1, t._2.toArray.apply(i))).collect()
-
-      val ideal = updateVec.filter(_._1.toInt >= i).maxBy(t => t._2.abs)
-
-      if (math.abs(ideal._2) < 1.0e-20) {
-        throw new IllegalArgumentException("The matrix must be non-singular")
-      } else if (i != ideal._1.toInt) {
-        //need to swap the rows with row number ideal_.1 and i
-        val currentRow = matr.rows.filter(t => t._1.toInt == i).first()
-        val idealRow = matr.rows.filter(t => t._1 == ideal._1).first()
-        val result = matr.rows.map(t =>
-          if (t._1.toInt == i)
-            (t._1, idealRow._2)
-          else if (t._1.toInt == ideal._1)
-            (t._1, currentRow._2)
-          else
-            t)
-        matr = new DenseVecMatrix(result, numRows(), numCols())
-        //updateVec = matr.rows.map(t => (t._1, t._2.toArray.apply(i))).collect()
-        val tmp = updateVec(i)._2
-        updateVec.update(i, (updateVec(i)._1, idealRow._2.apply(i)))
-        updateVec.update(idealRow._1.toInt, (updateVec(i)._1, tmp))
-
-        val tmp2 = permutation(i)
-        permutation.update(i, permutation(idealRow._1.toInt))
-        permutation.update(idealRow._1.toInt, tmp2)
-        /*
-        updateVec = updateVec.map(t =>
-          if (t._1 == i)
-            (t._1, idealRow._2.apply(i))
-          else if (t._1 == idealRow._1)
-            (t._1, tmp)
-          else t)
-        *
-        *
-        */
-      }
-
-      val vector = matr.rows.filter(_._1.toInt == i).map(t => t._2).collect().apply(0).toArray.clone
-      val c = matr.rows.context.broadcast(vector.apply(i))
-
-      //  vector.foreach(t => (t/c.value))
-      for (i <- 0 until vector.length)
-        vector.update(i, vector(i) / c.value)
-      val broadRow = matr.rows.context.broadcast(vector)
-
-      val broadCol = matr.rows.context.broadcast(updateVec.map(t => t._2))
-
-      val result = matr.rows.mapPartitions(iter => {
-        iter.map { t =>
-          val vec = t._2.toArray.clone()
-          if (t._1.toInt == i) {
-            for (k <- 0 until vec.length)
-              if (k == i) {
-                vec.update(k, broadRow.value.apply(k) / c.value)
-              } else {
-                vec.update(k, broadRow.value.apply(k))
-              }
-          } else {
-            for (k <- 0 until vec.length if k != i) {
-              vec.update(k, vec(k) - broadCol.value.apply(t._1.toInt) * broadRow.value.apply(k))
-            }
-          }
-          if (t._1.toInt != i)
-            vec.update(i, vec(i) / (-c.value))
-          (t._1, Vectors.dense(vec))
-        }
-      }, true)
-      matr = new DenseVecMatrix(result, numRows(), numCols())
-      //cache the matrix to speed the computation
-      //matr.rows.cache()
-      if (i % 50 == 0) {
-        println("process has finish: " + i)
-        println(Calendar.getInstance().getTime)
-      }
-      if (i % 2000 == 0) {
-        if (matr.rows.context.getCheckpointDir.isDefined)
-          matr.rows.checkpoint()
-      }
-    }
-    
-    val permuMatrix = new DenseVecMatrix(rows.map(t => {
-      val array = Array.fill[Double](numCols.toInt)(0)
-      array(permutation(t._1.toInt)) = 1;
-      (t._1, Vectors.dense(array))
-    }))
-
-    matr.multiplyHama(permuMatrix, 2).toDenseVecMatrix()
-  }
-
-  /**
-   * get the inverse of the triangular matrix
-   * @param mode  in which manner should the inverse be calculated, locally or distributed
-   * @param form  the type of the triangular matrix, "lower" as lower triangular, "upper" as upper triangular
-   * @return
-   */
-  private[marlin] def inverseTriangular(mode: String = "auto", form: String): DenseVecMatrix = {
-    def getFactor(n: Long, m: Long): Long = {
-      if (n % m == 0) m
-      else getFactor(n, m - 1)
-    }
-    require(numRows == numCols,
-      s"currently we only support square matrix: ${numRows} vs ${numCols}")
-
+  def blockCholeskyDecompose(mode: String = "auto"): BlockMatrix = {
+    require(numRows() == numCols(),
+      s"LU decompose only support square matrix: ${numRows()} v.s ${numCols()}")
     object LUmode extends Enumeration {
       val LocalBreeze, DistSpark = Value
     }
@@ -867,97 +478,293 @@ class DenseVecMatrix(
       case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
     }
 
-    val inverse: DenseVecMatrix = computeMode match {
+    val (luResult: BlockMatrix) = computeMode match {
       case LUmode.LocalBreeze => {
         val brz = toBreeze()
-        val inv = brzInv(brz).t
-        val invBro = rows.sparkContext.broadcast(inv)
-        val invRdd = rows.mapPartitions(iter => {
-          iter.map(t =>
-            (t._1, Vectors.dense(invBro.value(::, t._1.toInt).toArray)))
-        })
-        (new DenseVecMatrix(invRdd, numRows, numRows))
+        val l = brzCholesky(brz)
+        val blk = rows.context.parallelize(Seq((new BlockID(0, 0), l)), 1)
+        (new BlockMatrix(blk, l.rows, l.cols, 1, 1))
       }
       case LUmode.DistSpark => {
-        //val numSubRows = getFactor(numRows, Math.sqrt(numRows).toLong).toInt
-        val numSubRows2 = 1000
-        val numSubRows = (numRows - numSubRows2).toInt
+        val subMatrixBaseSize = rows.context.getConf.getInt("marlin.cholesky.basesize", 1000)
+        val numBlksByRow, numBlksByCol = math.ceil(numRows().toDouble / subMatrixBaseSize.toDouble).toInt
+        val subMatrixBase = math.ceil(numRows().toDouble / numBlksByRow.toDouble).toInt
 
-        val subMatrix11 = getSubMatrix(0, numSubRows - 1, 0, numSubRows.toInt - 1)
-        val subMatrix = if (form == "lower") {
-          getSubMatrix(numSubRows.toInt, numRows - 1, 0, numSubRows.toInt - 1)
-        }
-        else {
-          getSubMatrix(0, numSubRows - 1, numSubRows.toInt, numCols.toInt - 1)
-        }
-        val subMatrix22 = getSubMatrix(numSubRows.toInt, numRows - 1, numSubRows.toInt, numCols.toInt - 1)
+        val partitioner = new HashPartitioner(2 * getClusterCores())
+        var blkMat = this.toBlockMatrix(numBlksByRow, numBlksByCol).blocks.partitionBy(partitioner)
+        blkMat.cache()
 
-        val sc = rows.context
-        val cores = if (!sc.getConf.getOption("spark.default.parallelism").isEmpty) {
-          sc.getConf.get("spark.default.parallelism").toInt
-        } else {
-          sc.defaultMinPartitions
-        }
+        println("numBlkByRow is: " + numBlksByRow)
+        println("original partitioner: " + partitioner.toString())
+        val scatterRdds = Array.ofDim[RDD[(BlockID, BDM[Double])]](numBlksByRow - 1, 2)
 
-        val invMatrix11 = subMatrix11.inverseTriangular("auto", form)
+        for (i <- 0 until numBlksByRow) {
+          if (i == numBlksByRow - 1) {
+            blkMat = blkMat.mapValues(block => brzCholesky(block))
+          } else {
+            logInfo(s"LU iteration: $i")
+            val blksFirst = blkMat.filter(block => block._1.row == i && block._1.column == i)
+            val blksThird = blkMat.filter(block => block._1.row > i && block._1.column == i)
+            val blksForth = blkMat.filter(block => block._1.column > i && block._1.row >= block._1.column)
 
-        val brzInvMatrix22 = rows.sparkContext.broadcast(brzInv(subMatrix22.toBreeze()).t)
+            val mat = blksFirst.collect().head._2
+            for (j <- 0 until mat.rows)
+              for (k <- 0 until j)
+                mat(j, k) = mat(k, j)
 
-        val inv22Rdd = subMatrix22.rows.mapPartitions(iter => {
-          iter.map(t =>
-            (t._1, Vectors.dense(brzInvMatrix22.value(::, t._1.toInt).toArray)))
-        })
-        val invMatrix22 = (new DenseVecMatrix(inv22Rdd, numSubRows2, numSubRows2))
-        /**
-        val blkInvMatrix22 = new BlockMatrix(
-          rows.context.parallelize(Array[(BlockID, BDM[Double])]((new BlockID(0, 0), brzInvMatrix22.value.t))),
-          numSubRows2,
-          numSubRows2,
-          1,
-          1)
+            val l = brzCholesky(mat)
+            val bltinverse = rows.context.broadcast(brzInv(l.t))
+            scatterRdds(i)(0) = blksFirst.mapValues(block => l).cache()
+            scatterRdds(i)(1) = blksThird.mapValues(block => block * bltinverse.value).cache()
 
+            val nSplitNum = numBlksByRow - (i + 1)
+            val mult = scatterRdds(i)(1)
+              .mapPartitions({
+              iter =>
+                iter.flatMap(t => {
+                  val array = Array.ofDim[(BlockID, BDM[Double])](nSplitNum + 1)
+                  for (j <- 0 until array.length) {
+                    if (j < t._1.row - i) {
+                      array(j) = (new BlockID(t._1.row, (j + i + 1), 0), t._2)
+                    } else {
+                      array(j) = (new BlockID(i + j, t._1.row, 0), t._2.t)
+                    }
+                  }
+                  array
+                })
+            }).reduceByKey(partitioner, (a, b) => if (a.isTranspose) b * a else a * b)
 
-        val tmp = subMatrix21.multiply(invMatrix11, cores).subtractBy(0)
-        val parallelism = math.min(8 * cores, tmp.numRows() / 2).toInt
-
-//        val invMatrix21 = blkInvMatrix22
- //         .multiplyBroadcast(tmp, parallelism, (1, 1, parallelism), "broadcastA" ).toDenseVecMatrix()
-          */
-
-        val invMatrix = if (form == "lower") {
-          invMatrix22.multiply(subMatrix.multiply(invMatrix11, cores).subtractBy(0), cores).toDenseVecMatrix()
-        }else {
-          invMatrix11.multiply(subMatrix.multiply(invMatrix22, cores).subtractBy(0), cores).toDenseVecMatrix()
-        }
-
-        val rst = if (form == "lower") {
-          val u = invMatrix11.rows
-            .map(t => (t._1, Vectors.fromBreeze(BDV.vertcat(t._2.toBreeze.asInstanceOf[BDV[Double]], BDV.zeros[Double](numSubRows2)))))
-          val l = invMatrix.rows
-            .join(invMatrix22.rows)
-            .map { t =>
-            val array1 = t._2._1.toArray
-            val array2 = t._2._2.toArray
-            (t._1 + numSubRows, Vectors.dense(array1 ++ array2))
+            blkMat = blksForth.join(mult, partitioner).mapValues(t => t._1 - t._2).cache()
           }
-          (u, l)
-        }else {
-          val u = invMatrix11.rows
-            .join(invMatrix.rows)
-            .map { t =>
-            val array1 = t._2._1.toArray
-            val array2 = t._2._2.toArray
-            (t._1, Vectors.dense(array1 ++ array2))
-          }
-          val l = invMatrix22.rows
-            .map(t => (t._1 + numSubRows, Vectors.fromBreeze(BDV.vertcat(BDV.zeros[Double](numSubRows), t._2.toBreeze.asInstanceOf[BDV[Double]]))))
-          (u, l)
         }
-        val mat = new DenseVecMatrix(rst._1.union(rst._2), numRows(), numRows())
-        mat
+        for (i <- 0 until numBlksByRow - 1) {
+          for (j <- 0 until 2)
+            blkMat = blkMat.union(scatterRdds(i)(j))
+        }
+        //blkMat.partitionBy(partitioner)
+        (new BlockMatrix(blkMat))
       }
     }
-    inverse
+    println("row:" + luResult.blocks.count())
+    (luResult)
+  }
+
+  /**
+   * get the inverse of the triangular matrix
+   * @param mode  in which manner should the inverse be calculated, locally or distributed
+   * @return
+   */
+  def blockInverse(mode: String = "auto"): (BlockMatrix) = {
+    require(numRows() == numCols(),
+      s"Inversion only support square matrix: ${numRows()} v.s ${numCols()}")
+    object LUmode extends Enumeration {
+      val LocalBreeze, DistSpark = Value
+    }
+    val computeMode = mode match {
+      case "auto" => if (numRows > 6000L) {
+        LUmode.DistSpark
+      } else {
+        LUmode.LocalBreeze
+      }
+      case "breeze" => LUmode.LocalBreeze
+      case "dist" => LUmode.DistSpark
+      case _ => throw new IllegalArgumentException(s"Do not support mode $mode.")
+    }
+    val luResult: BlockMatrix = computeMode match {
+      case LUmode.LocalBreeze => {
+        val mat = toBreeze()
+        val inverse = brzInv(mat)
+        val blk = rows.context.parallelize(Seq((new BlockID(0, 0), inverse)), 1)
+        (new BlockMatrix(blk, inverse.rows, inverse.cols, 1, 1))
+      }
+
+      case LUmode.DistSpark => {
+        val subMatrixBaseSize = rows.context.getConf.getInt("marlin.inverse.basesize", 1000)
+        val numBlksByRow, numBlksByCol = math.ceil(numRows().toDouble / subMatrixBaseSize.toDouble).toInt
+        val subMatrixBase = math.ceil(numRows().toDouble / numBlksByRow.toDouble).toInt
+        val pArray = Array.ofDim[Int](numRows().toInt)
+
+        val partitioner = new HashPartitioner(2 * getClusterCores())
+        var blkMat = this.toBlockMatrix(numBlksByRow, numBlksByCol).blocks //.partitionBy(partitioner)
+
+        blkMat.cache()
+        println("numBlkByRow is: " + numBlksByRow)
+        println("original partitioner: " + partitioner.toString())
+        val scatterRdds = Array.ofDim[RDD[(BlockID, BDM[Double])]](numBlksByRow - 1, 3)
+
+        for (i <- 0 until numBlksByRow) {
+          if (i == numBlksByRow - 1) {
+            blkMat = blkMat.mapValues(block => brzInv(block))
+          } else {
+            val matFirst = blkMat.filter(block => block._1.row == i && block._1.column == i)
+            val matSecond = blkMat.filter(block => block._1.row == i && block._1.column > i)
+            val matThird = blkMat.filter(block => block._1.row > i && block._1.column == i)
+            val matForth = blkMat.filter(block => block._1.column > i && block._1.row > i)
+
+            val mat = matFirst.collect().head._2
+
+            logInfo(s"Inverse iteration: $i")
+            val t0 = System.currentTimeMillis()
+            val inverse = brzInv(mat)
+            logInfo(s"in iteration $i, in master inverse takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
+            val binv = rows.context.broadcast(inverse)
+
+            scatterRdds(i)(0) = matFirst.mapValues(block => binv.value).cache()
+            scatterRdds(i)(1) = matSecond.mapValues(block => {
+              val t0 = System.currentTimeMillis()
+              val tmp = -binv.value * block
+              logInfo(s"in iteration $i, computation for A2 takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
+              tmp
+            }).cache()
+            scatterRdds(i)(2) = matThird.mapValues(block => {
+              val t0 = System.currentTimeMillis()
+              val tmp = -block * binv.value
+              logInfo(s"in iteration $i, computation for A3 takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
+              tmp
+            }).cache()
+
+            val nSplitNum, mSplitNum = numBlksByRow - (i + 1)
+            val kSplitNum = 1
+
+            val matThirdEmit = matThird
+              .mapPartitions({
+              iter =>
+                iter.flatMap(t => {
+                  val array = Array.ofDim[(BlockID, BDM[Double])](nSplitNum)
+                  for (j <- 0 until nSplitNum) {
+                    //val seq = t._1.row * nSplitNum * kSplitNum + (j+i+1) * kSplitNum + t._1.column
+                    val seq = 0
+                    array(j) = (new BlockID(t._1.row, (j + i + 1), seq), t._2)
+                  }
+                  array
+                })
+            }) //.partitionBy(partitioner)
+
+            val matSecondEmit = matSecond
+              .mapPartitions({
+              iter =>
+                iter.flatMap(t => {
+                  val array = Array.ofDim[(BlockID, BDM[Double])](mSplitNum)
+                  for (j <- 0 until mSplitNum) {
+                    //val seq = (j + i + 1) * nSplitNum * kSplitNum + t._1.column * kSplitNum + t._1.row
+                    val seq = 0
+                    array(j) = (new BlockID(j + i + 1, t._1.column, seq), t._2)
+                  }
+                  array
+                })
+            }) //.partitionBy(partitioner)
+            println("matThirdEmit and matSecondEmit same partitioner? " + (matSecondEmit.partitioner == matThirdEmit.partitioner).toString)
+
+            val mult = matThirdEmit.join(matSecondEmit, partitioner)
+              .mapValues(t => {
+              val mat = (t._1.asInstanceOf[BDM[Double]] * binv.value * t._2.asInstanceOf[BDM[Double]])
+                .asInstanceOf[BDM[Double]]
+              (mat)
+            }) //.partitionBy(partitioner)
+            blkMat = matForth
+              .join(mult, partitioner).mapValues(t => t._1 - t._2) //.partitionBy(partitioner).cache()
+              .cache()
+            //println(blkMat.toDebugString)
+          }
+        }
+
+        for (i <- numBlksByRow - 2 to 0 by -1) {
+          //val firstMat = scatterRdds(i)(0)
+          val secondMat = scatterRdds(i)(1)
+          val thirdMat = scatterRdds(i)(2)
+
+          var m, k = numBlksByRow - 1 - i
+          var n = 1
+
+          val FourthEmit = blkMat.mapPartitions({
+            iter =>
+              iter.flatMap(t => {
+                val array = Array.ofDim[(BlockID, BDM[Double])](n)
+                for (j <- 0 until array.length) {
+                  //val seq = t._1.row * k * n + (i+j) * k + t._1.column
+                  val seq = t._1.row * numBlksByRow * numBlksByCol + (i + j) * numBlksByCol + t._1.column
+                  array(j) = (new BlockID(t._1.row, (i + j), seq), t._2)
+                }
+                array
+              })
+          })
+
+          val ThirdEmit = thirdMat.mapPartitions({
+            iter =>
+              iter.flatMap(t => {
+                val array = Array.ofDim[(BlockID, BDM[Double])](m)
+                for (j <- 0 until array.length) {
+                  //val seq = (i + 1 + j) * k * n + t._1.column * k + t._1.row
+                  val seq = (i + 1 + j) * numBlksByRow * numBlksByCol + t._1.column * numBlksByCol + t._1.row
+                  array(j) = (new BlockID((i + j + 1), t._1.column, seq), t._2)
+                }
+                array
+              })
+          })
+
+          val multThird = FourthEmit.join(ThirdEmit)
+            .map(t => {
+            val mat = (t._2._1.asInstanceOf[BDM[Double]] * t._2._2.asInstanceOf[BDM[Double]])
+              .asInstanceOf[BDM[Double]]
+            (new BlockID(t._1.row, t._1.column), mat)
+          }).reduceByKey(_ + _) //.partitionBy(partitioner)
+          multThird.count()
+
+          m = 1
+          n = numBlksByRow - i - 1
+          k = n
+          val SecondEmit = secondMat.mapPartitions(iter =>
+            iter.flatMap(t => {
+              val array = Array.ofDim[(BlockID, BDM[Double])](n)
+              for (j <- 0 until array.length) {
+                val seq = t._1.row * k * n + (i + j + 1) * k + t._1.column
+                array(j) = (new BlockID(t._1.row, i + j + 1, seq), t._2)
+              }
+              array
+            }))
+
+          val FourthEmit2 = blkMat.mapPartitions(iter =>
+            iter.flatMap(t => {
+              val array = Array.ofDim[(BlockID, BDM[Double])](m)
+              for (j <- 0 until array.length) {
+                val seq = (i + j) * k * n + t._1.column * k + t._1.row
+                array(j) = (new BlockID(i + j, t._1.column, seq), t._2)
+              }
+              array
+            }))
+
+          val multSecond = SecondEmit.join(FourthEmit2)
+            .map(t => {
+            val mat = (t._2._1.asInstanceOf[BDM[Double]] * t._2._2.asInstanceOf[BDM[Double]])
+              .asInstanceOf[BDM[Double]]
+            (new BlockID(t._1.row, t._1.column), mat)
+          }).reduceByKey(_ + _) //.partitionBy(partitioner)
+
+          val multFirst = scatterRdds(i)(1)
+            .map(t => (new BlockID(t._1.column, t._1.row), t._2))
+            .join(multThird)
+            .mapPartitions(iter =>
+            iter.map(t => {
+              val mat = (t._2._1.asInstanceOf[BDM[Double]] * t._2._2.asInstanceOf[BDM[Double]])
+                .asInstanceOf[BDM[Double]]
+              (new BlockID(i, i), mat)
+            }))
+            .reduceByKey(_ + _)
+            .join(scatterRdds(i)(0))
+            .mapValues(t => t._1 + t._2)
+            .reduceByKey(_ + _)
+
+          blkMat = blkMat.union(multSecond).union(multThird).union(multFirst)
+            .partitionBy(partitioner).cache()
+
+        }
+
+        val result = new BlockMatrix(blkMat, numRows(), numCols(), numBlksByRow, numBlksByCol)
+        //  println("cnt:" + result.blocks.count())
+        (result)
+      }
+    }
+    (luResult)
   }
 
   /**
