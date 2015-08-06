@@ -134,7 +134,9 @@ object MTUtils {
 
 
   /**
-   * Function to design the method how to split input two matrices
+   * Function to design the method how to split input two matrices, this method refer to CARMA
+   *  [[http://www.eecs.berkeley.edu/~odedsc/papers/bfsdfs-mm-ipdps13.pdf]], we recommend you to
+   *  design your own split method
    *
    * @param m rows num of Matrix A
    * @param k columns num of Matrix A, also rows num of Matrix B
@@ -175,7 +177,7 @@ object MTUtils {
    * @param oldRange
    * @param newSubBlk the sub-block length of the new matrix
    */
-  def splitMethod(oldRange: Array[(Int, Int)], newSubBlk: Int):
+  private[marlin] def splitMethod(oldRange: Array[(Int, Int)], newSubBlk: Int):
         Array[ArrayBuffer[(Int, (Int, Int), (Int, Int))]] = {
     val oldBlks = oldRange.length
     val splitStatus = Array.ofDim[ArrayBuffer[(Int, (Int, Int),(Int, Int))]](oldBlks)

@@ -52,7 +52,7 @@ object BLAS3Blocks {
       val t0 = System.currentTimeMillis()
       val blkMatA = matA.toBlockMatrix(m, k)
       val blkMatB = matB.toBlockMatrix(k, n)
-      val result = blkMatA.multiplySpark(blkMatB)
+      val result = blkMatA.multiply(blkMatB)
       result.blocks.count()
       println(s"in mode ${mode}, used time ${System.currentTimeMillis() - t0} millis" +
         s", ${Calendar.getInstance().getTime()}")
@@ -73,7 +73,7 @@ object BLAS3Blocks {
       val t0 = System.currentTimeMillis()
       val blockMatA = matA.toBlockMatrix(m, k)
       val blockMatB = matB.toBlockMatrix(k, n)
-      val result = blockMatA.multiplySpark(blockMatB)
+      val result = blockMatA.multiply(blockMatB)
       result.blocks.count()
       println(s"in mode ${mode}, used time ${System.currentTimeMillis() - t0} millis" +
         s", ${Calendar.getInstance().getTime()}")

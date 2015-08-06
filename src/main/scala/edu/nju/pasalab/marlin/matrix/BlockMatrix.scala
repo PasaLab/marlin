@@ -89,6 +89,21 @@ class BlockMatrix(
     mat
   }
 
+  /**
+   * Given split mode, multiply two block matrices together
+   *
+   * @param other
+   * @param spplitMode represented as (m, k, n), which means this matrix would be split to (m,k) sub-blocks,
+   *                   and other matrix would be split to (k,n) sub-blocks
+   */
+  def multiply(other: BlockMatrix, spplitMode: (Int, Int, Int)): BlockMatrix = {
+    require(numCols() == other.numRows(), s"Dimension mismatch: ${numCols()} vs ${other.numRows()}")
+    val (m, k, n) = spplitMode
+    val matA = toBlockMatrix(m, k)
+    val matB = other.toBlockMatrix(k, n)
+    matA.multiply(matB)
+  }
+
   def multiply(other: BlockMatrix): BlockMatrix = {
     require(numCols() == other.numRows(), s"Dimension mismatch: ${numCols()} vs ${other.numRows()}")
     if (numBlksByCol() == other.numBlksByRow()) {
@@ -100,9 +115,6 @@ class BlockMatrix(
       val nSplitNum = other.numBlksByCol()
       val partitioner = new MatrixMultPartitioner(mSplitNum, kSplitNum, nSplitNum)
 
-      if (nSplitNum == 1) {
-        blocks.map{case(blkId, blk) => }
-      }
       val thisEmitBlocks = blocks.flatMap({ case(blkId, blk) =>
         Iterator.tabulate[(BlockID, BDM[Double])](nSplitNum)(i => {
           val seq = blkId.row * nSplitNum * kSplitNum + i * kSplitNum + blkId.column
@@ -113,30 +125,22 @@ class BlockMatrix(
           val seq = i * nSplitNum * kSplitNum + blkId.column * kSplitNum + blkId.row
           (BlockID(i, blkId.column, seq), blk)
         })
-      })//.partitionBy(partitioner)
+      }).partitionBy(partitioner)
       if (kSplitNum != 1) {
-        val otherBlocks = thisEmitBlocks.context.joinBroadcast(otherEmitBlocks)
-        val result = thisEmitBlocks.mapPartitions(iter =>
-          iter.map { block =>
-            val blkId = block._1
-            val b2 = otherBlocks.getValue(blkId)
-            val t0 = System.currentTimeMillis()
-            val b1 = block._2.asInstanceOf[BDM[Double]]
-            val c = (b1 * b2).asInstanceOf[BDM[Double]]
-//            logInfo(s"finish $id multiply, time consumed ${(System.currentTimeMillis() - t0) / 1000} seconds")
-            (new BlockID(blkId.row, blkId.column), c)
-          }).reduceByKey(_ + _)
-//        otherBlocks.destroy()
+        val result = thisEmitBlocks.join(otherEmitBlocks).mapPartitions(iter =>
+          iter.map { case (blkId, (block1, block2)) =>
+            val c: BDM[Double] = block1.asInstanceOf[BDM[Double]] * block2.asInstanceOf[BDM[Double]]
+            (BlockID(blkId.row, blkId.column), c)
+          }
+        ).reduceByKey((a, b) => a + b)
         new BlockMatrix(result, numRows(), other.numCols(), mSplitNum, nSplitNum)
       } else {
-        val otherBlocks = thisEmitBlocks.context.joinBroadcast(otherEmitBlocks)
-        val result = thisEmitBlocks.map({ block =>
-          val blkId = block._1
-          val b1 = block._2.asInstanceOf[BDM[Double]]
-          val b2 = otherBlocks.getValue(blkId)
-          val c = (b1 * b2).asInstanceOf[BDM[Double]]
-          (new BlockID(blkId.row, blkId.column), c)
-        })
+        val result = thisEmitBlocks.join(otherEmitBlocks).mapPartitions(iter =>
+          iter.map { case (blkId, (block1, block2)) =>
+            val c: BDM[Double] = block1.asInstanceOf[BDM[Double]] * block2.asInstanceOf[BDM[Double]]
+            (BlockID(blkId.row, blkId.column), c)
+          }
+        )
         new BlockMatrix(result, numRows(), other.numCols(), mSplitNum, nSplitNum)
       }
     } else if (numBlksByCol() % other.numBlksByRow() == 0) {
@@ -172,224 +176,18 @@ class BlockMatrix(
     }
   }
 
-  def multiply(other: DenseVecMatrix, splitN: Int): BlockMatrix = {
+  /**
+   *
+   * @param other
+   * @param splitN how the right DenseVecMatrix would be split along column
+   */
+  def multiply(other: DenseVecMatrix, splitN: Int = 1): BlockMatrix = {
     require(numCols() == other.numRows(), s"Dimension mismatch: ${numCols()} vs ${other.numRows()}")
     val k = numBlksByRow()
     val otherSplit = other.toBlockMatrix(k, splitN)
     multiply(otherSplit)
   }
 
-  /**
-   * use executor broadcast to broadcast the distributed DenseVecMatrix to each node
-   * without collect to driver and then broadcast out
-   *
-   * @param other
-   * @return
-   */
-//  def multiplyBroadcast(other: DenseVecMatrix): BlockMatrix = {
-//    require(numBlksByCol() == 1, s"boradcast multiplication only supported BlockMatrix without split")
-//    require(numCols() == other.numRows(), s"Dimension mismatch: ${numCols()} vs ${other.numRows()}")
-//    val otherRows = blocks.context.executorBroadcast(other.rows)
-//    val result = blocks.mapPartitions { iter =>
-//      val rows = otherRows.value
-//      val rowLen = rows.length
-//      val colLen = rows(0)._2.size
-//      val mat = BDM.zeros[Double](rowLen, colLen)
-//      for (r <- rows) {
-//        mat(r._1.toInt, ::) := r._2.t
-//      }
-//      iter.map { case (blkId, block) =>
-//        (blkId, (block * mat).asInstanceOf[BDM[Double]])
-//      }
-//    }
-//    new BlockMatrix(result, numRows(), other.numCols(), numBlksByRow(), numBlksByCol())
-//  }
-
-  def multiplyBroadcastSpark(other: DenseVecMatrix): BlockMatrix = {
-    require(numBlksByCol() == 1, s"boradcast multiplication only supported BlockMatrix without split")
-    require(numCols() == other.numRows(), s"Dimension mismatch: ${numCols()} vs ${other.numRows()}")
-    val otherMat = blocks.context.broadcast(other.toBreeze())
-    val result = blocks.mapValues(block =>
-      (block.asInstanceOf[BDM[Double]] * otherMat.value).asInstanceOf[BDM[Double]]
-    )
-    new BlockMatrix(result, numRows(), other.numCols(), numBlksByRow(), numBlksByCol())
-  }
-
-  def multiplySpark(other: BlockMatrix): BlockMatrix = {
-    require(numCols() == other.numRows(), s"Dimension mismatch: ${numCols()} vs ${other.numRows()}")
-    if (numBlksByCol() == other.numBlksByRow()) {
-      //num of rows to be split of this matrix
-      val mSplitNum = numBlksByRow()
-      //num of columns to be split of this matrix, meanwhile num of rows of that matrix
-      val kSplitNum = numBlksByCol()
-      //num of columns to be split of that matrix
-      val nSplitNum = other.numBlksByCol()
-      val partitioner = new MatrixMultPartitioner(mSplitNum, kSplitNum, nSplitNum)
-
-      val thisEmitBlocks = blocks.flatMap({ case(blkId, blk) =>
-        Iterator.tabulate[(BlockID, BDM[Double])](nSplitNum)(i => {
-          val seq = blkId.row * nSplitNum * kSplitNum + i * kSplitNum + blkId.column
-          (BlockID(blkId.row, i, seq), blk)})
-      }).partitionBy(partitioner)
-      //          thisEmitBlocks.count()
-      val otherEmitBlocks = other.blocks.flatMap({ case(blkId, blk) =>
-        Iterator.tabulate[(BlockID, BDM[Double])](mSplitNum)(i => {
-          val seq = i * nSplitNum * kSplitNum + blkId.column * kSplitNum + blkId.row
-          (BlockID(i, blkId.column, seq), blk)
-        })
-      }).partitionBy(partitioner)
-      //          otherEmitBlocks.count()
-      if (kSplitNum != 1) {
-        val result = thisEmitBlocks.join(otherEmitBlocks).mapPartitions(iter =>
-          iter.map { case (blkId, (block1, block2)) =>
-            logInfo(s"start blk:${blkId.row}, ${blkId.column} multiply")
-            val c: BDM[Double] = block1.asInstanceOf[BDM[Double]] * block2.asInstanceOf[BDM[Double]]
-            (BlockID(blkId.row, blkId.column), c)
-          }
-        ).reduceByKey((a, b) => {
-          logInfo(s"start add")
-          a + b}
-        )
-
-//        thisEmitBlocks.cogroup(otherEmitBlocks, partitioner).flatMap{case((blkId, (a, b))) =>
-//            if (a.size)
-//        }
-        new BlockMatrix(result, numRows(), other.numCols(), mSplitNum, nSplitNum)
-      } else {
-        val result = thisEmitBlocks.join(otherEmitBlocks).mapPartitions(iter =>
-          iter.map { case (blkId, (block1, block2)) =>
-            val c: BDM[Double] = block1.asInstanceOf[BDM[Double]] * block2.asInstanceOf[BDM[Double]]
-            (BlockID(blkId.row, blkId.column), c)
-          }
-        )
-        new BlockMatrix(result, numRows(), other.numCols(), mSplitNum, nSplitNum)
-      }
-    } else if (numBlksByCol() % other.numBlksByRow() == 0) {
-      if (numCols() % numBlksByCol() != 0) {
-        throw new IllegalArgumentException("only supported BlockMatrix which all the sub-matrices have the same cols")
-      }
-      if (numCols() / numBlksByCol() % 2 != 0) {
-        throw new IllegalArgumentException("only supported sub-matrices with even number cols")
-      }
-      val ratio = numBlksByCol() / other.numBlksByRow()
-      val otherBlks = other.blocks.flatMap { case (blkId, mat) =>
-        Iterator.tabulate(ratio)(i => (new BlockID(blkId.row * ratio + i, blkId.column),
-          mat((i * mat.rows / ratio) to ((i + 1) * mat.rows / ratio - 1), ::)))
-      }
-      val otherSplit = new BlockMatrix(otherBlks)
-      this.multiplySpark(otherSplit)
-    } else if (other.numBlksByRow() % numBlksByCol() == 0) {
-      if (numCols() % numBlksByCol() != 0) {
-        throw new IllegalArgumentException("only supported BlockMatrix which all the sub-matrices have the same cols")
-      }
-      if (numCols() / numBlksByCol() % 2 != 0) {
-        throw new IllegalArgumentException("only supported sub-matrices with even number cols")
-      }
-      val ratio = other.numBlksByRow() / numBlksByCol()
-      val thisBlks = blocks.flatMap { case (blkId, mat) =>
-        Iterator.tabulate(ratio)(i => (new BlockID(blkId.row * ratio + i, blkId.column),
-          mat((i * mat.rows / ratio) to ((i + 1) * mat.rows / ratio - 1), ::)))
-      }
-      val thisSplit = new BlockMatrix(thisBlks)
-      thisSplit.multiplySpark(other)
-    } else {
-      throw new IllegalArgumentException("currently not supported for the two dimension of matrices")
-    }
-  }
-
-  def multiplySpark(other: DenseVecMatrix, splitN: Int): BlockMatrix = {
-    require(numCols() == other.numRows(), s"Dimension mismatch: ${numCols()} vs ${other.numRows()}")
-    val k = numBlksByRow()
-    val otherSplit = other.toBlockMatrix(k, splitN)
-    multiplySpark(otherSplit)
-  }
-
-  /**
-   * matrix-matrix multiplication between two BlockMatrix
-   * @param other the matrix to be multiplied
-   * @param cores all the num of cores across the cluster
-   * @return the multiplication result in BlockMatrix type
-   */
-  def multiplyOriginal(other: DistributedMatrix, cores: Int): BlockMatrix = {
-
-    require(numCols() == other.numRows(), s"Dimension mismatch: ${numCols()} vs ${other.numRows()}")
-    other match {
-      case mat: BlockMatrix => {
-        if (numBlksByCol() != mat.numBlksByRow()) {
-          toDenseVecMatrix().oldMultiply(mat.toDenseVecMatrix(), cores)
-        } else {
-          //num of rows to be split of this matrix
-          val mSplitNum = numBlksByRow()
-          //num of columns to be split of this matrix, meanwhile num of rows of that matrix
-          val kSplitNum = numBlksByCol()
-          //num of columns to be split of that matrix
-          val nSplitNum = mat.numBlksByCol()
-          val partitioner = new MatrixMultPartitioner(mSplitNum, kSplitNum, nSplitNum)
-
-          val thisEmitBlocks = blocks.flatMap({ t =>
-            val array = Array.ofDim[(BlockID, BDM[Double])](nSplitNum)
-            for (i <- 0 until nSplitNum) {
-              val seq = t._1.row * nSplitNum * kSplitNum + i * kSplitNum + t._1.column
-              array(i) = (new BlockID(t._1.row, i, seq), t._2)
-            }
-            array
-          }
-          ).partitionBy(partitioner)
-          //          thisEmitBlocks.count()
-          val otherEmitBlocks = mat.blocks.flatMap({ t =>
-            val array = Array.ofDim[(BlockID, BDM[Double])](mSplitNum)
-            for (i <- 0 until mSplitNum) {
-              val seq = i * nSplitNum * kSplitNum + t._1.column * kSplitNum + t._1.row
-              array(i) = (new BlockID(i, t._1.column, seq), t._2)
-            }
-            array
-          }) //.partitionBy(partitioner)
-          //          otherEmitBlocks.count()
-          if (kSplitNum != 1) {
-            val otherBlocks = thisEmitBlocks.context.joinBroadcast(otherEmitBlocks)
-            val result = thisEmitBlocks.mapPartitions(iter =>
-              iter.map { block =>
-                val blkId = block._1
-                val b2 = otherBlocks.getValue(blkId)
-//                logInfo(s"start $id multiply")
-                val t0 = System.currentTimeMillis()
-                val b1 = block._2.asInstanceOf[BDM[Double]]
-                val c = (b1 * b2).asInstanceOf[BDM[Double]]
-//                logInfo(s"finish $id multiply, time consumed ${(System.currentTimeMillis() - t0) / 1000} seconds")
-                (new BlockID(blkId.row, blkId.column), c)
-              }).reduceByKey(_ + _)
-            new BlockMatrix(result, numRows(), other.numCols(), mSplitNum, nSplitNum)
-          } else {
-            val otherBlocks = thisEmitBlocks.context.joinBroadcast(otherEmitBlocks)
-            val result = thisEmitBlocks.map({ block =>
-              val blkId = block._1
-              val b1 = block._2.asInstanceOf[BDM[Double]]
-              val b2 = otherBlocks.getValue(blkId)
-              val c = (b1 * b2).asInstanceOf[BDM[Double]]
-              (new BlockID(blkId.row, blkId.column), c)
-            })
-            new BlockMatrix(result, numRows(), other.numCols(), mSplitNum, nSplitNum)
-          }
-        }
-      }
-
-      case mat: DenseVecMatrix => {
-        // if the other matrix is small, just broadcast it, it is beneficial when several matrices multiplication
-        val broadSize = 300 * 1024 * 1024 / 8
-        if (numBlksByCol() == 1 && mat.numRows() * mat.numCols() < broadSize) {
-          val broadBDM = blocks.context.broadcast(mat.toBreeze())
-          val result = blocks.mapPartitions(iter => {
-            iter.map(t => {
-              (t._1, (t._2 * broadBDM.value).asInstanceOf[BDM[Double]])
-            })
-          })
-          new BlockMatrix(result, numRows(), mat.numCols(), numBlksByRow(), numBlksByCol())
-        } else {
-          toDenseVecMatrix().oldMultiply(mat, cores)
-        }
-      }
-    }
-  }
 
   /**
    * element-wise multiply another number
@@ -397,52 +195,18 @@ class BlockMatrix(
    * @param b the number to be multiplied
    * @return the result in BlockMatrix type
    */
-  final def multiply(b: Double): BlockMatrix = {
+  def multiply(b: Double): BlockMatrix = {
     val result = blocks.mapValues(t => (t * b).asInstanceOf[BDM[Double]])
     new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
   }
 
-  /**
-   * matrix- distributed vector multiplication using join broadcast
-   *
-   * @param v
-   */
-  final def multiply(v: DistributedVector): DistributedVector = {
-    require(numCols() == v.length, s"dimension mismatch ${numCols()} v.s ${v.length}")
-    // below change to vector resize
-    //    if (numBlksByCol() != v.splitNum){
-    //      val localVec = v.toBreeze()
-    //      val numSplit = numBlksByCol()
-    //      val vectLen = math.ceil(localVec.length.toDouble / numSplit.toDouble).toInt
-    //      val array = Array.ofDim[](numSplit)
-    //      for(i <- 0 until numSplit){
-    //        array(i) = localVec(i * vectLen, math.min((i + 1) * vectLen - 1, localVec.length - 1))
-    //      }
-    //      blocks.context.parallelize(array.zipWithIndex)
-    //    }
-    require(numBlksByCol() == v.splitNum, s"not supported matrix or vector")
-    if (numBlksByCol() != 1) {
-      val bv = blocks.context.joinBroadcast(v.vectors)
-      val vectors = blocks.map { case (blkID, blk) =>
-        (blkID.row, blk * bv.getValue(blkID.column))
-      }.reduceByKey(_ + _)
-      new DistributedVector(vectors)
-    } else {
-      val bv = blocks.context.joinBroadcast(v.vectors)
-      val vectors = blocks.map { case (blkID, blk) =>
-        val tag = Random.nextInt(1000)
-        (blkID.row, blk * bv.getValue(blkID.column))
-      }
-      new DistributedVector(vectors)
-    }
-  }
 
   /**
    * matrix- distributed vector multiplication using spark original join
    *
    * @param v
    */
-  def multiplySpark(v: DistributedVector): DistributedVector = {
+  def multiply(v: DistributedVector): DistributedVector = {
     require(numCols() == v.length, s"dimension mismatch ${numCols()} v.s ${v.length}")
     require(numBlksByCol() == v.splitNum, s"not supported matrix or vector")
     val m = numBlksByRow()
@@ -463,10 +227,10 @@ class BlockMatrix(
   }
 
   /**
-   * matrix - local vector multiplication
-   * @param v
+   * matrix-vector multiplication
+   * @param v other dense vector
    */
-  final def multiply(v: BDV[Double]): DistributedVector = {
+  def multiply(v: BDV[Double]): DistributedVector = {
     require(numCols() == v.length, s"matrix columns size ${numCols()} not support vector length ${v.length}")
     require(numBlksByCol() == 1, s"should not split the matrix by column")
     val vector = blocks.context.broadcast(v)
@@ -477,12 +241,16 @@ class BlockMatrix(
     new DistributedVector(splits)
   }
 
-  final def multiply(B: BDM[Double]): BlockMatrix = {
+  /**
+   * matrix-small local matrix multiplication
+   * @param B
+   */
+  def multiply(B: BDM[Double]): BlockMatrix = {
     require(numCols() == B.rows, s"Dimension mismatch: ${numCols()} vs ${B.rows}")
 
     val Bb = getBlocks.context.broadcast(B)
     if (numBlksByCol() == 1) {
-      val blocksMat = getBlocks.map { case(blkId, blk) =>
+      val blocksMat = getBlocks.map{ case(blkId, blk) =>
         (blkId, (blk.asInstanceOf[BDM[Double]] * Bb.value).asInstanceOf[BDM[Double]])
       }
       new BlockMatrix(blocksMat, numRows(), B.cols, numBlksByRow(), numBlksByCol())
@@ -495,7 +263,6 @@ class BlockMatrix(
         }else {
           (blkId.column + 1) * colBlkSize
         }
-        println(s"during Blk * BC, startCol: $startCol, endCol: $endCol")
         (BlockID(blkId.row, 0), (blk.asInstanceOf[BDM[Double]] *
           Bb.value(startCol until endCol, ::)).asInstanceOf[BDM[Double]])
       }.reduceByKey(_ + _)
@@ -512,12 +279,11 @@ class BlockMatrix(
    */
   final def add(other: DistributedMatrix): DistributedMatrix = {
     other match {
-      case mat: DenseVecMatrix => {
+      case mat: DenseVecMatrix =>
         require(numRows() == mat.numRows() &&
           numCols() == mat.numCols(), s"matrix dimension mismatch")
         toDenseVecMatrix().add(mat)
-      }
-      case mat: BlockMatrix => {
+      case mat: BlockMatrix =>
         require(numRows() == mat.numRows() &&
           numCols() == mat.numCols(), s"matrix dimension mismatch")
         if (numBlksByRow() != mat.numBlksByRow() || numBlksByCol() != mat.numBlksByCol()) {
@@ -526,7 +292,6 @@ class BlockMatrix(
           val result = blocks.join(mat.blocks).mapValues(t => t._1 + t._2)
           new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
         }
-      }
     }
   }
 
@@ -550,12 +315,11 @@ class BlockMatrix(
    */
   final def subtract(other: DistributedMatrix): DistributedMatrix = {
     other match {
-      case mat: DenseVecMatrix => {
+      case mat: DenseVecMatrix =>
         require(numRows() == mat.numRows() &&
           numCols() == mat.numCols(), s"matrix dimension mismatch")
         toDenseVecMatrix().subtract(mat)
-      }
-      case mat: BlockMatrix => {
+      case mat: BlockMatrix =>
         require(numRows() == mat.numRows() &&
           numCols() == mat.numCols(), s"matrix dimension mismatch")
         if (numBlksByRow() != mat.numBlksByRow() || numBlksByCol() != mat.numBlksByCol()) {
@@ -564,7 +328,6 @@ class BlockMatrix(
           val result = blocks.join(mat.blocks).mapValues(t => t._1 - t._2)
           new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
         }
-      }
     }
   }
 
@@ -633,6 +396,13 @@ class BlockMatrix(
   }
 
   /**
+   * count the sub-matrices of this BlockMatrix
+   */
+  def elementsCount(): Long = {
+    blocks.count()
+  }
+
+  /**
    * Matrix-matrix dot product, the two input matrices must have the same row and column dimension
    * @param other the matrix to be dot product
    * @return
@@ -641,23 +411,21 @@ class BlockMatrix(
     require(numRows() == other.numRows(), s"row dimension mismatch ${numRows()} vs ${other.numRows()}")
     require(numCols() == other.numCols(), s"column dimension mismatch ${numCols()} vs ${other.numCols()}")
     other match {
-      case that: DenseVecMatrix => {
+      case that: DenseVecMatrix =>
         toDenseVecMatrix().dotProduct(that)
-      }
-      case that: BlockMatrix => {
+      case that: BlockMatrix =>
         if (numBlksByRow() == that.numBlksByRow() && numBlksByCol() == that.numBlksByCol()) {
           val result = blocks.join(that.blocks).mapValues(t => {
             val rows = t._1.rows
             val cols = t._1.cols
             val array = t._1.data.zip(t._2.data)
-              .map(x => x._1 * x._2).toArray
+              .map(x => x._1 * x._2)
             new BDM(rows, cols, array)
           })
           new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
         } else {
           toDenseVecMatrix().dotProduct(toDenseVecMatrix())
         }
-      }
     }
   }
 
@@ -684,61 +452,6 @@ class BlockMatrix(
     toDenseVecMatrix().inverse()
   }
 
-  /**
-   * Using spark-property broadcast to decrease time used in the matrix-matrix multiplication
-   *
-   * @param other other matrix to be multiplied
-   * @return the result matrix in BlockMatrix type
-   */
-  private[marlin] def multiplyBroadcast(other: BlockMatrix, parallelism: Int, splits: (Int, Int, Int), mode: String): BlockMatrix = {
-    val tmp = if (mode.toLowerCase.equals("broadcastb")) {
-      val subBlocks = other.blocks.collect()
-      val blocksArray = Array.ofDim[BDM[Double]](other.blksByRow, other.blksByCol)
-      for (s <- subBlocks) {
-        blocksArray(s._1.row)(s._1.column) = s._2
-      }
-      val bArr = blocks.context.broadcast(blocksArray)
-
-      blocks.mapPartitions(iter => {
-        val res = Array.ofDim[(BlockID, BDM[Double])](other.blksByCol)
-        val mats = bArr.value
-        iter.flatMap(t => {
-          for (j <- 0 until other.blksByCol) {
-            res(j) = (new BlockID(t._1.row, j),
-              (t._2 * mats(t._1.column)(j)).asInstanceOf[BDM[Double]])
-          }
-          res
-        })
-      })
-    } else {
-      val subBlocks = blocks.collect()
-      val blocksArray = Array.ofDim[BDM[Double]](blksByRow, blksByCol)
-      for (s <- subBlocks) {
-        blocksArray(s._1.row)(s._1.column) = s._2
-      }
-      val bArr = blocks.context.broadcast(blocksArray)
-      other.blocks.mapPartitions(iter => {
-        val res = Array.ofDim[(BlockID, BDM[Double])](blksByRow)
-        val mats = bArr.value
-        iter.flatMap(t => {
-          for (j <- 0 until blksByRow) {
-            res(j) = (new BlockID(j, t._1.column),
-              (mats(j)(t._1.row) * t._2).asInstanceOf[BDM[Double]])
-          }
-          res
-        })
-      })
-    }
-
-    if (splits._2 == 1) {
-      new BlockMatrix(tmp, numRows(), other.numCols(),
-        numBlksByRow(), other.numBlksByCol())
-    } else {
-      val result = tmp.partitionBy(new HashPartitioner(parallelism)).reduceByKey(_ + _)
-      new BlockMatrix(result, numRows(), other.numCols(),
-        numBlksByRow(), other.numBlksByCol())
-    }
-  }
 
   /**
    * this function is used to save the martrix in DenseVecMatrix format

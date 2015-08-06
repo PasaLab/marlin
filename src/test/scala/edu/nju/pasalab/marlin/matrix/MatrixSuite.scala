@@ -193,7 +193,7 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
     assert(mat.add(mat).toBreeze() === addSelf)
     assert(mat.subtract(1).toBreeze() === eleSubtract1)
     assert(mat.subtract(mat).toBreeze() === BDM.zeros[Double](4, 4))
-    assert(mat.oldMultiply(2).toBreeze() === addSelf)
+    assert(mat.multiply(2).toBreeze() === addSelf)
     assert(mat.divide(2).toBreeze() === divide2)
     val ma = new BlockMatrix(blocks)
     //    val denVecMat = new DenseVecMatrix(rows)
@@ -246,10 +246,13 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
 
   test("DenseVecMatrix multiply a DenseVecMatrix, and select broadcast-approach") {
     val mat = new DenseVecMatrix(indexRows)
-    val result = mat.oldMultiply(mat, 2)
-    val blkSeq = result.blocks.collect().toSeq
-    assert(blkSeq.contains(new BlockID(0, 0), BDM((11.0, 10.0, 9.0, 8.0), (23.0, 24.0, 25.0, 26.0))))
-    assert(blkSeq.contains(new BlockID(1, 0), BDM((7.0, 11.0, 15.0, 19.0), (6.0, 7.0, 8.0, 9.0))))
+    val result = mat.multiply(mat, 2)
+    val expected = BDM(
+      (11.0, 10.0, 9.0, 8.0),
+      (23.0, 24.0, 25.0, 26.0),
+      (7.0, 11.0, 15.0, 19.0),
+      (6.0, 7.0, 8.0, 9.0))
+    assert(result.toBreeze() === expected)
   }
 
   test("new matrix multiplication") {
@@ -279,8 +282,8 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
       (23.0, 24.0, 25.0, 26.0),
       (7.0, 11.0, 15.0, 19.0),
       (6.0, 7.0, 8.0, 9.0))
-    val result = mat.oldMultiplyByRow(local)
-    val result2 = mat.multiplyBroadcast(local)
+    val result = mat.multiply(local)
+    val result2 = mat.multiply(local)
     assert(result.toBreeze() === expected)
     assert(result2.toBreeze() === expected)
   }
@@ -288,10 +291,13 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
   test("multiply a BlockMatrix") {
     val mat = new DenseVecMatrix(indexRows)
     val blkMat = new BlockMatrix(blocks)
-    val result = mat.oldMultiply(blkMat, 2)
-    val blkSeq = result.blocks.collect().toSeq
-    assert(blkSeq.contains(new BlockID(0, 0), BDM((11.0, 10.0, 9.0, 8.0), (23.0, 24.0, 25.0, 26.0))))
-    assert(blkSeq.contains(new BlockID(1, 0), BDM((7.0, 11.0, 15.0, 19.0), (6.0, 7.0, 8.0, 9.0))))
+    val result = mat.multiply(blkMat, 2)
+    val expected = BDM(
+      (11.0, 10.0, 9.0, 8.0),
+      (23.0, 24.0, 25.0, 26.0),
+      (7.0, 11.0, 15.0, 19.0),
+      (6.0, 7.0, 8.0, 9.0))
+    assert(result.toBreeze() === expected)
 
     val ma = new BlockMatrix(blocks)
     val result2 = ma.multiply(ma)
@@ -305,10 +311,13 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
   test("BlockMatrix multiply a DenseVecMatrix and choose to run broadcast") {
     val ma = new BlockMatrix(blocks)
     val denVecMat = new DenseVecMatrix(indexRows)
-    val result = ma.multiplyOriginal(denVecMat, 2)
-    val blkSeq = result.blocks.collect().toSeq
-    assert(blkSeq.contains(new BlockID(0, 0), BDM((11.0, 10.0, 9.0, 8.0), (23.0, 24.0, 25.0, 26.0))))
-    assert(blkSeq.contains(new BlockID(1, 0), BDM((7.0, 11.0, 15.0, 19.0), (6.0, 7.0, 8.0, 9.0))))
+    val result = ma.multiply(denVecMat, 2)
+    val expected = BDM(
+      (11.0, 10.0, 9.0, 8.0),
+      (23.0, 24.0, 25.0, 26.0),
+      (7.0, 11.0, 15.0, 19.0),
+      (6.0, 7.0, 8.0, 9.0))
+    assert(result.toBreeze() === expected)
   }
 
 
@@ -338,7 +347,7 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
     //    val (l, u) = mat.luDecompose2(4)
     //    l.print()
     //    u.print()
-    val result = l.oldMultiply(u, 4).toBreeze()
+    val result = l.multiply(u, 4).toBreeze()
     //    println(result.toString())
     //    result.print()
     val self = BDM(
@@ -446,22 +455,7 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
     assert(doubleResultLocal.left.get === 30.0)
   }
 
-  test("BLAS2 matrix-vector multiplication") {
-    val mat = new DenseVecMatrix(indexRows)
-    val vector: BDV[Double] = BDV(1.0, 2.0, 3.0, 4.0)
-    val result2 = mat.multiplyVector2(vector)
-    val distVector = DistributedVector.fromVector(sc, vector, 2)
-    val matLocalVec = mat.oldMultiply(vector, 2)
-    val matDistVec = mat.oldMultiply(distVector, (2, 2))
-    val matDistVecSpark = mat.oldMultiplySpark(distVector, (2, 2))
-    val result = mat.multiplyVector(vector)
-    val expected: BDV[Double] = BDV(20.0, 40.0, 10.0, 10.0)
-    assert(matLocalVec.toBreeze() === expected)
-    assert(matDistVec.toBreeze() === expected)
-    assert(matDistVecSpark.toBreeze() === expected)
-    assert(result === expected)
-    assert(result2 === expected)
-  }
+
 
   test("BlockMatrix to BlockMatrix") {
     val mat = new DenseVecMatrix(indexRows)
@@ -481,7 +475,7 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
     println(s"other toBreeze: ${blk2.toBreeze()}")
     println(s"block matrix info: numRows: ${m.numRows()}, numCols: ${m.numCols()}, " +
       s"blksByRow: ${m.numBlksByRow()}, blksByCol: ${m.numBlksByCol()}")
-    val result = m.multiplySpark(blk2)
+    val result = m.multiply(blk2)
     val expected = BDM(
       (11.0, 10.0, 9.0, 8.0),
       (23.0, 24.0, 25.0, 26.0),

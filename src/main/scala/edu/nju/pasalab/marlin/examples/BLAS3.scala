@@ -41,7 +41,7 @@ object BLAS3 {
       val matrixA = MTUtils.randomDenVecMatrix(sc, rowA, colA, m)
       val matrixB = BDM.rand[Double](rowB, colB)
       val t0 = System.currentTimeMillis()
-      val result = matrixA.multiplyBroadcast(matrixB)
+      val result = matrixA.multiply(matrixB)
       result.rows.count
       println(s"multiplication in mode $mode used time ${(System.currentTimeMillis() - t0)} millis " +
         s";${Calendar.getInstance().getTime}")

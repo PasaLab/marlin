@@ -38,19 +38,8 @@ class SparseVecMatrix(
       arr
     }
 
-//    val result = thisEmits.join(otherEmits).flatMap{case(index, (valA, valB)) =>
-////      println("*********")
-////      println(s"index: $index, valA: ${valA}; valB: ${valB}")
-////      println("*********")
-//      val arr = new ArrayBuffer[((Long, Long), Float)]()
-//        arr += (((valA._1, valB._1), valA._2 * valB._2))
-//      arr
-//    }.reduceByKey( _ + _)
 
     val result = thisEmits.join(otherEmits).flatMap{case(index, (valA, valB)) =>
-//      println("*********")
-//      println(s"index: $index, valA: ${valA.mkString(",")}; valB: ${valB}")
-//      println("*********")
       val arr = new ArrayBuffer[((Long, Long), Float)]()
       for (l <- valA){
         arr += (((l._1, valB._1), l._2 * valB._2))
@@ -74,4 +63,9 @@ class SparseVecMatrix(
     }}
     new DenseVecMatrix(result, nRows, nCols)
   }
+
+  def elementsCount(): Long = {
+    rows.count()
+  }
+
 }
