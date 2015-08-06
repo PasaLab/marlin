@@ -70,6 +70,18 @@ object MTUtils {
     new DenseVecMatrix(rows, nRows, nColumns)
   }
 
+  def randomSpaVecMatrix(sc: SparkContext,
+      nRows: Long,
+      nColumns: Int,
+      density: Double,
+      numPartitions: Int = 0,
+      distribution: RandomDataGenerator[Double] = new UniformGenerator(0.0, 1.0)): SparseVecMatrix = {
+
+    val rows = RandomRDDs.randomSpaVecRDD(sc, distribution, nRows, nColumns,
+      numPartitionsOrDefault(sc, numPartitions), density)
+    new SparseVecMatrix(rows, nRows, nColumns)
+  }
+
   def randomDistVector(sc: SparkContext,
       length: Long,
       numSplits: Int,

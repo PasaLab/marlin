@@ -19,14 +19,15 @@ import scala.collection.parallel.mutable.ParArray
 import org.apache.hadoop.io.{Text, NullWritable}
 import org.apache.hadoop.mapred.TextOutputFormat
 import org.apache.log4j.{Logger, Level}
-import org.apache.spark.{SparkException, Partitioner, SparkContext, Logging}
+import org.apache.spark._
 import org.apache.spark.SparkContext._
 import org.apache.spark.rdd.RDD
 import org.apache.spark.storage.{JoinBroadcastBlockId, StorageLevel}
 
 import edu.nju.pasalab.marlin.utils.MTUtils
 
-import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV, axpy => brzAxpy, svd => brzSvd, LU => brzLU, inv => brzInv, cholesky => brzCholesky, Transpose, upperTriangular, lowerTriangular}
+import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV, SparseVector => BSV,
+axpy => brzAxpy, svd => brzSvd, LU => brzLU, inv => brzInv, cholesky => brzCholesky, Transpose, upperTriangular, lowerTriangular}
 import breeze.numerics.{sqrt => brzSqrt}
 import com.github.fommil.netlib.BLAS.{getInstance => blas}
 
@@ -169,7 +170,70 @@ class DenseVecMatrix(
       } else {
         Iterator()
       }
-    }.reduceByKey(partitioner, (a, b) => a + b)//.reduceByKey(partitioner, (a, b) => a + b)
+    }.reduceByKey(partitioner, (a, b) => a + b)
+    new BlockMatrix(newBlocks, numRows(), other.numCols(), m, n)
+  }
+
+  def multiplyReduceShuffle2(other: DenseVecMatrix, splitMode: (Int, Int, Int)): BlockMatrix = {
+    require(numCols() == other.numRows(), s"dimension mismatch: ${numCols()} vs ${other.numRows()}")
+    val (m, k, n) = splitMode
+    val matA = toBlockMatrix(m, k)
+    val matB = other.toBlockMatrix(k, n)
+    val partitioner = new GridPartitioner(m, n,
+      math.max(matA.blocks.partitions.length, matB.blocks.partitions.length))
+    val flatA = matA.blocks.flatMap { case (blkId, block) =>
+      Iterator.tabulate(matB.numBlksByCol())(j => ((blkId.row, j, blkId.column), block))
+    }.partitionBy(partitioner)
+    val flatB = matB.blocks.flatMap { case (blkId, block) =>
+      Iterator.tabulate(matA.numBlksByRow())(i => ((i , blkId.column, blkId.row), block))
+    }.partitionBy(partitioner)
+    val newBlocks: RDD[(BlockID, BDM[Double])] = flatA.join(flatB).flatMap
+    { case ((blockRowIndex, blockColIndex, _), (a, b)) =>
+//      if (a.size > 1 || b.size > 1) {
+//        throw new SparkException("There are multiple MatrixBlocks with indices: " +
+//          s"(${blockRowIndex}, ${blockColIndex}). Please remove them.")
+//      }
+      println("start multiply")
+        val c: BDM[Double] = a * b
+        Iterator((BlockID(blockRowIndex, blockColIndex), c))
+    }.reduceByKey(partitioner, (a, b) => {
+      println("start sum together")
+      a + b
+    })
+    new BlockMatrix(newBlocks, numRows(), other.numCols(), m, n)
+  }
+
+  def multiplyReduceShuffle3(other: DenseVecMatrix, splitMode: (Int, Int, Int)): BlockMatrix = {
+    require(numCols() == other.numRows(), s"dimension mismatch: ${numCols()} vs ${other.numRows()}")
+    val (m, k, n) = splitMode
+    val matA = toBlockMatrix(m, k)
+    val matB = other.toBlockMatrix(k, n)
+//    val partitioner = new GridPartitioner(m, n,
+//      math.max(matA.blocks.partitions.length, matB.blocks.partitions.length))
+    val partitioner = new MatrixMultPartitioner(m, k, n)
+    val flatA = matA.blocks.flatMap { case (blkId, block) =>
+      Iterator.tabulate(matB.numBlksByCol())(j => {
+        val seq = blkId.row * n * k + j * k + blkId.column
+        (BlockID(blkId.row, j, seq), block)
+      })
+    }
+    val flatB = matB.blocks.flatMap { case (blkId, block) =>
+      Iterator.tabulate(matA.numBlksByRow())(i => {
+        val seq = i * n * k + blkId.column * k + blkId.row
+        (BlockID(i , blkId.column, seq), block)})
+    }
+    val newBlocks: RDD[(BlockID, BDM[Double])] = flatA.join(flatB, partitioner).flatMap
+//    val newBlocks: RDD[(BlockID, BDM[Double])] = flatA.join(flatB).flatMap
+    { case (blkId, (a, b)) =>
+//      if (a.size > 1 || b.size > 1) {
+//        throw new SparkException("There are multiple MatrixBlocks with indices: " +
+//          s"(${blkId.row}, ${blkId.column}, ${blkId.seq}). Please remove them.")
+//      }
+      val c: BDM[Double] = a * b
+      Iterator((BlockID(blkId.row, blkId.column), c))
+    }
+//  .reduceByKey(partitioner, (a, b) => a + b)
+  .reduceByKey((a, b) => a + b)
     new BlockMatrix(newBlocks, numRows(), other.numCols(), m, n)
   }
 
@@ -1912,7 +1976,7 @@ class DenseVecMatrix(
           }
         }
         if (indices.size >= 0) {
-          (t._1, new SparseVector(indices.size, indices.toArray, values.toArray))
+          (t._1, new BSV[Double](indices.toArray, values.toArray, indices.size))
         } else {
           throw new IllegalArgumentException("indices size is empty")
         }

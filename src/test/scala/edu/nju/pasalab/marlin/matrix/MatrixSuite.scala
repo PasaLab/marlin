@@ -3,7 +3,7 @@ package edu.nju.pasalab.marlin.matrix
 import edu.nju.pasalab.marlin.utils.{ MTUtils, LocalSparkContext }
 import org.apache.spark.rdd.RDD
 import org.scalatest.FunSuite
-import breeze.linalg.{ DenseMatrix => BDM, DenseVector => BDV }
+import breeze.linalg.{ DenseMatrix => BDM, DenseVector => BDV, SparseVector => BSV }
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -25,11 +25,19 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
     (new BlockID(1, 1), BDM((1.0, 0.0), (1.0, 1.0)))).map(t => (t._1, t._2))
   var indexRows: RDD[(Long, BDV[Double])] = _
   var blocks: RDD[(BlockID, BDM[Double])] = _
+  val sparseData = Seq(
+    (0L, new BSV[Double](Array(1, 3), Array(2.0, 3.0), 4)),
+    (1L, new BSV[Double](Array(0, 1), Array(5.0, 1.0),4)),
+    (2L, new BSV[Double](Array(3), Array(2.0), 4)),
+    (3L, new BSV[Double](Array(1, 2), Array(1.0, 1.0), 4))
+  )
+  var sparseRows: RDD[(Long, BSV[Double])] = _
 
   override def beforeAll() {
     super.beforeAll()
     indexRows = sc.parallelize(data, 2)
     blocks = sc.parallelize(blks, 2)
+    sparseRows = sc.parallelize(sparseData, 2)
   }
 
   test("matrix size") {
@@ -134,6 +142,25 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
     }
     val disVec2 = disVec1.toDisVector(splitStatus, 4)
     assert(disVec1.toBreeze() === disVec2.toBreeze())
+  }
+
+
+  test("generate random sparse matrix"){
+    val s = MTUtils.randomSpaVecMatrix(sc, 10, 8, 0.3)
+//    s.rows.collect().foreach{ case(a, b) => println(b.data.mkString(","))}
+    assert(s.nRows == 10L)
+  }
+
+  test("Sparse matrix multiply") {
+    val sm = new SparseVecMatrix(sparseRows, 4L, 4L)
+    val sm2 = new SparseVecMatrix(sparseRows, 4L, 4L)
+    val result = BDM(
+      (10.0, 5.0, 3.0, 0.0),
+      (5.0, 11.0, 0.0, 15.0),
+      (0.0, 2.0, 2.0, 0.0),
+      (5.0, 1.0, 0.0, 2.0)
+    )
+    assert(sm.multiplySparse(sm2).toBreeze() === result)
   }
 
   test("Matrix-matrix and element-wise addition/subtract; element-wise multiply and divide") {

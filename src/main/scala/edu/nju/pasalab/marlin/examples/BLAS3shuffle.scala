@@ -13,11 +13,14 @@ object BLAS3shuffle {
       println("usage: BLAS3shuffle <matrixA row length> <matrixA column length> <matrixB column length> <mode> <m> <k> <n> ")
       println("mode 1 means use shuffle avoid strategy")
       println("mode 2 means compute first strategy")
+      println("mode 3 means multiplyReduceShuffle2")
+      println("mode 4 means multiplyReduceShuffle3")
       println("for example: BLAS3shuffle 10000 10000 10000 1 5 5 5 ")
       System.exit(1)
     }
-    val conf = new SparkConf()
+    val conf = new SparkConf().setMaster("local[*]").setAppName("test partitioner")
     conf.set("spark.kryo.registrator", "edu.nju.pasalab.marlin.examples.BLAS2Registrator")
+    conf.set("spark.default.parallelism", "8")
     val sc = new SparkContext(conf)
     val rowA = args(0).toInt
     val colA, rowB = args(1).toInt
@@ -34,11 +37,26 @@ object BLAS3shuffle {
       val t0 = System.currentTimeMillis()
       val result = matrixA.multiplyReduceShuffle(matrixB, (m, k, n))
       result.blocks.count
+      result.print()
+      println(s"multiplication in mode $mode used time ${(System.currentTimeMillis() - t0)} millis " +
+        s";${Calendar.getInstance().getTime}")
+    }else if (mode == 2) {
+      val t0 = System.currentTimeMillis()
+      val result = matrixA.multiply(matrixB, (m, k, n))
+      result.blocks.count
+      result.print()
+      println(s"multiplication in mode $mode used time ${(System.currentTimeMillis() - t0)} millis " +
+        s";${Calendar.getInstance().getTime}")
+    }else if (mode == 3){
+      val t0 = System.currentTimeMillis()
+      val result = matrixA.multiplyReduceShuffle2(matrixB, (m, k, n))
+      println(s"result blocks: ${result.blocks.count}")
+      result.print()
       println(s"multiplication in mode $mode used time ${(System.currentTimeMillis() - t0)} millis " +
         s";${Calendar.getInstance().getTime}")
     }else {
       val t0 = System.currentTimeMillis()
-      val result = matrixA.multiply(matrixB, (m, k, n))
+      val result = matrixA.multiplyReduceShuffle3(matrixB, (m, k, n))
       result.blocks.count
       println(s"multiplication in mode $mode used time ${(System.currentTimeMillis() - t0)} millis " +
         s";${Calendar.getInstance().getTime}")

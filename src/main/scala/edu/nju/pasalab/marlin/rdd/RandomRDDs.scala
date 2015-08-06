@@ -9,6 +9,17 @@ import edu.nju.pasalab.marlin.matrix.{DenseVector, BlockID}
 import edu.nju.pasalab.marlin.utils.{OnesGenerator, ZerosGenerator, RandomDataGenerator}
 
 object RandomRDDs {
+  def randomSpaVecRDD(sc: SparkContext,
+                      generator: RandomDataGenerator[Double],
+                      numRows: Long,
+                      numCols: Int,
+                      numPartitions: Int,
+                      density: Double,
+                      seed: Long = System.nanoTime()) = {
+    new RandomSpaVecRDD(
+      sc, numRows, numCols, numPartitions, generator, density, seed)
+  }
+
 
   /**
    * Generates an RDD[(Long, DenseVector)] with vectors containing i.i.d. samples produced by the
@@ -26,10 +37,10 @@ object RandomRDDs {
       generator: RandomDataGenerator[Double],
       numRows: Long,
       numCols: Int,
-      numPartitions: Int = 0,
+      numPartitions: Int,
       seed: Long = System.nanoTime()): RDD[(Long, BDV[Double])] = {
     new RandomDenVecRDD(
-      sc, numRows, numCols, numPartitionsOrDefault(sc, numPartitions), generator, seed)
+      sc, numRows, numCols, numPartitions, generator, seed)
   }
 
   def randomDistVectorRDD(sc: SparkContext,

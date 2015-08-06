@@ -2,9 +2,10 @@ package edu.nju.pasalab.marlin.rdd
 
 import org.apache.spark.annotation.DeveloperApi
 
+import scala.collection.mutable.HashSet
 import scala.util.Random
 
-import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV}
+import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV, SparseVector => BSV}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{Partition, SparkContext, TaskContext}
 
@@ -22,6 +23,7 @@ private[marlin] class RandomRDDPartition[T](override val index: Int,
 
 
 private [marlin]  object RandomRDD {
+
 
   def getPartitions[T](size: Long,
       numPartitions: Int,
@@ -41,7 +43,28 @@ private [marlin]  object RandomRDD {
     }
     partitions.asInstanceOf[Array[Partition]]
   }
-  
+
+  def getSparseVecIterator(
+      partition: RandomRDDPartition[Double],
+      vectorSize: Int,
+      rowsLength: Long,
+      density: Double): Iterator[(Long, BSV[Double])] = {
+    val generator = partition.generator.copy()
+    val rnd = new Random()
+    generator.setSeed(partition.seed)
+    val index = (0 + partition.start until rowsLength.toInt).toIterator
+    val sparseSize = (vectorSize * density).toInt
+    val set = new HashSet[Int]()
+    while (set.size < sparseSize) {
+      set.+=(rnd.nextInt(vectorSize))
+    }
+    val indexes = set.toArray
+    scala.util.Sorting.quickSort(indexes)
+    Iterator.fill(partition.size)((index.next(),
+      new BSV[Double](indexes, Array.fill(sparseSize)(generator.nextValue()), vectorSize)))
+  }
+
+
   // The RNG has to be reset every time the iterator is requested to guarantee same data
   // every time the content of the RDD is examined.
   def getDenseVecIterator(
@@ -100,6 +123,31 @@ private[marlin] class RandomDistVectorRDD(@transient sc: SparkContext,
 
   override protected def getPartitions: Array[Partition] = {
     RandomRDD.getPartitions(numSplits, numSplits, rng, seed)
+  }
+}
+
+private[marlin] class RandomSpaVecRDD(@transient sc: SparkContext,
+    nRows: Long,
+    vectorSize: Int,
+    numPartitions: Int,
+    @transient rng: RandomDataGenerator[Double],
+    density: Double,
+    @transient seed: Long = System.nanoTime()) extends RDD[(Long, BSV[Double])](sc, Nil){
+
+  require(nRows > 0, "Positive RDD size required.")
+  require(numPartitions > 0, "Positive number of partitions required")
+  require(vectorSize > 0, "Positive vector size required.")
+  require(density > 0, "Positive density")
+  require(math.ceil(nRows.toDouble / numPartitions) <= Int.MaxValue,
+    "Partition size cannot exceed Int.MaxValue")
+
+  override def compute(splitIn: Partition, context: TaskContext): Iterator[(Long, BSV[Double])] = {
+    val split = splitIn.asInstanceOf[RandomRDDPartition[Double]]
+    RandomRDD.getSparseVecIterator(split, vectorSize, nRows, density)
+  }
+
+  override protected def getPartitions: Array[Partition] = {
+    RandomRDD.getPartitions(nRows, numPartitions, rng, seed)
   }
 }
 

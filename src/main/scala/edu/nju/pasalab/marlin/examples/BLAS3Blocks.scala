@@ -47,7 +47,7 @@ object BLAS3Blocks {
       val n = args(8).toInt
       val matA = MTUtils.randomBlockMatrix(sc, rowA, colA, aRowBlk, aColBlk)
       // this step is to let the generate block matrix distribute in the cluster uniformly
-//      matA.blocks.count()
+      matA.blocks.count()
       val matB = MTUtils.randomDenVecMatrix(sc, rowB, colB)
       val t0 = System.currentTimeMillis()
       val blkMatA = matA.toBlockMatrix(m, k)
@@ -68,6 +68,8 @@ object BLAS3Blocks {
 
       val matA = MTUtils.randomBlockMatrix(sc, rowA, colA, aRowBlk, aColBlk)
       val matB = MTUtils.randomBlockMatrix(sc, rowB, colB, bRowBlk, bColBlk)
+      matA.blocks.count()
+      matB.blocks.count()
       val t0 = System.currentTimeMillis()
       val blockMatA = matA.toBlockMatrix(m, k)
       val blockMatB = matB.toBlockMatrix(k, n)
