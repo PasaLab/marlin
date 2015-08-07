@@ -15,7 +15,6 @@ object BLAS3 {
       println("mode 1 means collect the two matrix to local, and then execute multiplication")
       println("mode 2 means broadcast one of the matrix out, and then execute multiplication")
       println("mode 3 means shuffle the two distributed matrix, and then execute multiplication")
-//      println("mode 4 means shuffle the two distributed matrix, but the original implementations")
       println("for example: BLAS3 10000 10000 10000 1 5 5 5 ")
       System.exit(1)
     }
@@ -57,18 +56,6 @@ object BLAS3 {
       println(s"multiplication in mode $mode used time ${(System.currentTimeMillis() - t0)} millis " +
         s";${Calendar.getInstance().getTime}")
     }
-//    }else {
-//      val m = args(4).toInt
-//      val k = args(5).toInt
-//      val n = args(6).toInt
-//      val matrixA = MTUtils.randomDenVecMatrix(sc, rowA, colA)
-//      val matrixB = MTUtils.randomDenVecMatrix(sc, rowB, colB)
-//      val t0 = System.currentTimeMillis()
-//      val result = matrixA.oldMultiplySpark(matrixB, (m , k, n))
-//      result.blocks.count()
-//      println(s"multiplication in mode $mode used time ${(System.currentTimeMillis() - t0)} millis " +
-//        s";${Calendar.getInstance().getTime}")
-//    }
     sc.stop()
 
   }

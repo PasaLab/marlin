@@ -226,14 +226,6 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
     assert(mat.getSubMatrix(1, 2, 1, 2).toBreeze() === sub1212)
   }
 
-//  test("DenseVecMatrix multiply a DenseVecMatrix in CARMA-approach") {
-//    val mat = new DenseVecMatrix(indexRows)
-//    val result = mat.multiplyCarma(mat, 2)
-//    val blkSeq = result.blocks.collect().toSeq
-//    assert(blkSeq.contains(new BlockID(0, 0), BDM((11.0, 10.0), (23.0, 24.0), (7.0, 11.0), (6.0, 7.0))))
-//    assert(blkSeq.contains(new BlockID(0, 1), BDM((9.0, 8.0), (25.0, 26.0), (15.0, 19.0), (8.0, 9.0))))
-//  }
-//
 //  test("DenseVecMatrix multiply a DenseVecMatrix in block-approach") {
 //    val mat = new DenseVecMatrix(indexRows)
 //    val result = mat.multiplyHama(mat, 2)
@@ -379,14 +371,6 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
   }
 
   test("DenseVecMatrix inverse") {
-    /*
-    val row = Seq(
-      (0L, Vectors.dense(1.0, 2.0, 3.0)),
-      (1L, Vectors.dense(0.0, 1.0, 4.0)),
-      (2L, Vectors.dense(5.0, 6.0, 0.0))
-      *
-      */
-
     val row = Seq(
       (0L, BDV(0.0, 0.0, 1.0)),
       (1L, BDV(0.0, 1.0, 0.0)),

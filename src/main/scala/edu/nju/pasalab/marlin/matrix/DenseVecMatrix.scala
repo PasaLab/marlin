@@ -943,7 +943,7 @@ class DenseVecMatrix(
    */
   final def subtract(other: DistributedMatrix): DenseVecMatrix = {
     other match {
-      case that: DenseVecMatrix => {
+      case that: DenseVecMatrix =>
         require(numRows() == that.numRows(), s"Row dimension mismatch: ${numRows()} vs ${other.numRows()}")
         require(numCols == that.numCols, s"Column dimension mismatch: ${numCols()} vs ${other.numCols()}")
 
@@ -952,10 +952,8 @@ class DenseVecMatrix(
             (t._1, BDV(t._2._1.toArray.zip(t._2._2.toArray).map(x => x._1 - x._2))))
         }, true)
         new DenseVecMatrix(result, numRows(), numCols())
-      }
-      case that: BlockMatrix => {
+      case that: BlockMatrix =>
         subtract(that.toDenseVecMatrix())
-      }
     }
 
   }
