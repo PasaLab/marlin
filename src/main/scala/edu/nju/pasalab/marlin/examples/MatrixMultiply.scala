@@ -16,11 +16,11 @@ object MatrixMultiply {
   def main(args: Array[String]) {
     if (args.length < 4){
       System.err.println("arguments wrong, the arguments should be " +
-        "<matrix A rows length> <matrix A columns length> <matrix B columns length> <cores across the cluster>  " +
+        "<matrix A rows> <matrix A columns/ matrix B rows> <matrix B columns> <cores across the cluster>  " +
         "+ optional parameter{<broadcast threshold>}")
       System.exit(-1)
     }
-    val conf = new SparkConf().setMaster("local[4]").setAppName("matrix multiply")
+    val conf = new SparkConf()
     /**if the matrices are too large, you can set below properties to tune the Spark well*/
 //    conf.set("spark.storage.memoryFraction", "0.4")
 //    conf.set("spark.eventLog.enabled", "true")
@@ -35,12 +35,15 @@ object MatrixMultiply {
 //    conf.set("spark.shuffle.consolidateFiles", "true")
 
     val sc = new SparkContext(conf)
-    val ma = MTUtils.randomDenVecMatrix(sc, args(0).toInt, args(1).toInt)
-    val mb = MTUtils.randomDenVecMatrix(sc, args(1).toInt, args(2).toInt)
-    val threshold = if (args.length < 6) {
+    val rowA = args(0).toInt
+    val colA, rowB = args(1).toInt
+    val colB = args(2).toInt
+    val ma = MTUtils.randomDenVecMatrix(sc, rowA, colA)
+    val mb = MTUtils.randomDenVecMatrix(sc, rowB, colB)
+    val threshold = if (args.length < 5) {
       300
     }else { args(5).toInt }
-    val result = ma.multiply(mb, args(3).toInt)
+    val result = ma.multiply(mb, args(3).toInt, threshold)
     println("Result RDD counts: " + result.elementsCount())
     sc.stop()
   }

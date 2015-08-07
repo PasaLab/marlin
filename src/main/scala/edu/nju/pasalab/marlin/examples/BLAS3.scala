@@ -19,7 +19,6 @@ object BLAS3 {
       System.exit(1)
     }
     val conf = new SparkConf()
-    conf.set("spark.kryo.registrator", "edu.nju.pasalab.marlin.examples.BLAS2Registrator")
     val sc = new SparkContext(conf)
     val rowA = args(0).toInt
     val colA, rowB = args(1).toInt
