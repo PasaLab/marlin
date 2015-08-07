@@ -2,9 +2,11 @@ package edu.nju.pasalab.marlin.utils
 
 import java.nio.ByteBuffer
 
+import scala.collection.mutable.ArrayBuffer
 import scala.util.hashing.MurmurHash3
+import scala.{specialized => spec}
 
-import breeze.linalg.{DenseMatrix => BDM}
+import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV, min, max}
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 
@@ -65,7 +67,27 @@ object MTUtils {
       distribution: RandomDataGenerator[Double] = new UniformGenerator(0.0, 1.0)): DenseVecMatrix = {
     
     val rows = RandomRDDs.randomDenVecRDD(sc, distribution, nRows, nColumns, numPartitionsOrDefault(sc, numPartitions))
-    new DenseVecMatrix(rows, nRows, nColumns)  
+    new DenseVecMatrix(rows, nRows, nColumns)
+  }
+
+  def randomSpaVecMatrix(sc: SparkContext,
+      nRows: Long,
+      nColumns: Int,
+      density: Double,
+      numPartitions: Int = 0,
+      distribution: RandomDataGenerator[Double] = new UniformGenerator(0.0, 1.0)): SparseVecMatrix = {
+
+    val rows = RandomRDDs.randomSpaVecRDD(sc, distribution, nRows, nColumns,
+      numPartitionsOrDefault(sc, numPartitions), density)
+    new SparseVecMatrix(rows, nRows, nColumns)
+  }
+
+  def randomDistVector(sc: SparkContext,
+      length: Long,
+      numSplits: Int,
+      distribution: RandomDataGenerator[Double] = new UniformGenerator(0.0, 1.0)): DistributedVector = {
+    val parts = RandomRDDs.randomDistVectorRDD(sc, distribution, length, numSplits)
+    new DistributedVector(parts, length, numSplits)
   }
 
   /**
@@ -100,8 +122,21 @@ object MTUtils {
     new DenseVecMatrix(rows, nRows, nColumns)
   }
 
+
+  def onesDistVector(sc: SparkContext,
+      length: Long,
+      numSplits: Int): DistributedVector = {
+    val ones = new OnesGenerator()
+    val parts = RandomRDDs.randomDistVectorRDD(sc, ones, length, numSplits)
+    new DistributedVector(parts)
+  }
+
+
+
   /**
-   * Function to design the method how to split input two matrices
+   * Function to design the method how to split input two matrices, this method refer to CARMA
+   *  [[http://www.eecs.berkeley.edu/~odedsc/papers/bfsdfs-mm-ipdps13.pdf]], we recommend you to
+   *  design your own split method
    *
    * @param m rows num of Matrix A
    * @param k columns num of Matrix A, also rows num of Matrix B
@@ -137,6 +172,33 @@ object MTUtils {
     (mSplitNum, kSplitNum, nSplitNum)
   }
 
+  /**
+   * generate the split method
+   * @param oldRange
+   * @param newSubBlk the sub-block length of the new matrix
+   */
+  private[marlin] def splitMethod(oldRange: Array[(Int, Int)], newSubBlk: Int):
+        Array[ArrayBuffer[(Int, (Int, Int), (Int, Int))]] = {
+    val oldBlks = oldRange.length
+    val splitStatus = Array.ofDim[ArrayBuffer[(Int, (Int, Int),(Int, Int))]](oldBlks)
+    for (i <- 0 until oldBlks){
+      val (start, end) = oldRange(i)
+      val startId = start / newSubBlk
+      val endId = end / newSubBlk
+      val num = endId - startId + 1
+//      val tmpBlk = math.ceil((end - start + 1).toDouble / num.toDouble).toInt
+      val arrayBuffer = new ArrayBuffer[(Int, (Int, Int), (Int, Int))]()
+      var tmp = 0
+      for (j <- 0 until num){
+        val tmpEnd = min((j + startId + 1) * newSubBlk - 1 - start , end - start)
+        arrayBuffer.+=((j + startId, (tmp , tmpEnd), ((tmp + start) % newSubBlk, (tmpEnd + start) % newSubBlk)))
+        tmp = tmpEnd + 1
+      }
+      splitStatus(i) = arrayBuffer
+    }
+    splitStatus
+  }
+
   private def dimToSplit(m: Long, k: Long, n: Long): Int={
     var result = 0
     if (n >= k && n >= m) {
@@ -146,6 +208,62 @@ object MTUtils {
     }
     else result = 3
     result
+  }
+
+  /**
+   * Function to load Coordinate matrix from file
+   * @param sc the running SparkContext
+   * @param path the path where store the matrix
+   * @param minPartitions the min num of partitions of the matrix to load in Spark
+  */
+  def loadCoordinateMatrix(sc: SparkContext, path: String, minPartitions: Int = 4): CoordinateMatrix = {
+    if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://")
+      && !path.startsWith("/") && !path.startsWith("~/")) {
+      System.err.println("the path is not in local file System, HDFS or Tachyon")
+      throw new IllegalArgumentException("the path is not in local file System, HDFS or Tachyon")
+    }
+    val data = sc.textFile(path, minPartitions)
+    val entries = data.map(_.split(",\\s?|\\s+") match {
+      case Array(rowId, colId, value) =>
+        ((rowId.toLong, colId.toLong), value.toFloat)
+      // like MovieLens data, except the (user, product, rating) there still exist time stamp data
+      case Array(rowId, colId, value, timeStamp) =>
+        ((rowId.toLong, colId.toLong), value.toFloat)
+    })
+    new CoordinateMatrix(entries)
+  }
+
+  /**
+   * Function to load SVM like file, actually the first item of each line is not the label but the line index
+   * @param sc the running SparkContext
+   * @param path the path where store the matrix
+   * @param vectorLen the length of each vector
+   * @param minPartitions the min num of partitions of the matrix to load in Spark
+   * @return
+   */
+  def loadSVMDenVecMatrix(sc: SparkContext, path: String, vectorLen: Int, minPartitions: Int = 4): DenseVecMatrix = {
+    if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://")
+      && !path.startsWith("/") && !path.startsWith("~/")) {
+      System.err.println("the path is not in local file System, HDFS or Tachyon")
+      throw new IllegalArgumentException("the path is not in local file System, HDFS or Tachyon")
+    }
+    val data = sc.textFile(path, minPartitions)
+    val rows = data.map { line =>
+      val items = line.split(" ")
+      val index = items.head.toLong
+      val indicesAndValues = items.tail.map{ item =>
+        val indexAndValue = item.split(":")
+        val ind = indexAndValue(0).toInt - 1
+        val value = indexAndValue(1).toDouble
+        (ind, value)
+      }
+      val array = Array.ofDim[Double](vectorLen)
+      for ((i, v) <- indicesAndValues){
+        array.update(i, v)
+      }
+      (index, BDV(array))
+    }
+    new DenseVecMatrix(rows, 0L, vectorLen)
   }
 
   /**
@@ -160,7 +278,6 @@ object MTUtils {
     if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://")
       && !path.startsWith("/") && !path.startsWith("~/")) {
       System.err.println("the path is not in local file System, HDFS or Tachyon")
-//      System.exit(1)
       throw new IllegalArgumentException("the path is not in local file System, HDFS or Tachyon")
     }
     val file = sc.textFile(path, minPartitions)
@@ -168,24 +285,24 @@ object MTUtils {
       val e = t.split(":")
       val rowIndex = e(0).toLong
       val array = e(1).split(",\\s?|\\s+").map(_.toDouble)
-      val vec = Vectors.dense(array)
+      val vec = BDV(array)
       (rowIndex,vec)
     })
     new DenseVecMatrix(rows)
   }
 
-  /**
-   * Load DenseVecMatrix from sequence file, the original sequenceFile is key-value pair stored,
-   * key is index in `Long` type, value is `DenseVector`
-   * s
-   *@param sc the running SparkContext
-   * @param path the path where store the matrix
-   * @param minPartitions the min num of partitions of the matrix to load in Spark
-   */
-  def loadMatrixSeqFile(sc: SparkContext, path: String, minPartitions: Int = 0): DenseVecMatrix = {
-    val result = sc.sequenceFile[Long, DenseVector](path, numPartitionsOrDefault(sc, minPartitions))
-    new DenseVecMatrix(result)
-  }
+//  /**
+//   * Load DenseVecMatrix from sequence file, the original sequenceFile is key-value pair stored,
+//   * key is index in `Long` type, value is `DenseVector`
+//   * s
+//   *@param sc the running SparkContext
+//   * @param path the path where store the matrix
+//   * @param minPartitions the min num of partitions of the matrix to load in Spark
+//   */
+//  def loadMatrixSeqFile(sc: SparkContext, path: String, minPartitions: Int = 0): DenseVecMatrix = {
+//    val result = sc.sequenceFile[Long, DenseVector](path, numPartitionsOrDefault(sc, minPartitions))
+//    new DenseVecMatrix(result)
+//  }
 
 
   /**
@@ -230,7 +347,7 @@ object MTUtils {
       val lines = t._2.split("\n")
       lines.map( l =>{
         val content = l.split(":")
-        ( content(0).toLong, Vectors.dense( content(1).split(",\\s?|\\s+").map(_.toDouble) ))
+        ( content(0).toLong, BDV(content(1).split(",\\s?|\\s+").map(_.toDouble) ))
       })
     })
     new DenseVecMatrix(rows)
@@ -272,7 +389,7 @@ object MTUtils {
    */
   def arrayToMatrix(sc:SparkContext , array: Array[Array[Double]] , partitions: Int = 2): DenseVecMatrix ={
     new DenseVecMatrix( sc.parallelize(array.zipWithIndex
-      .map{case(t,i)  => (i.toLong, Vectors.dense(t)) },partitions) )
+      .map{case(t,i)  => (i.toLong, BDV(t)) },partitions) )
   }
 
   /**
@@ -357,7 +474,7 @@ object MTUtils {
       matrix match {
         case vecMatrix: DenseVecMatrix => {
           val result = vecMatrix.rows.map( t =>
-            (t._1, Vectors.dense(List.fill(times)(t._2.toArray).flatten.toArray)) )
+            (t._1, BDV(List.fill(times)(t._2.toArray).flatten.toArray)) )
           new DenseVecMatrix(result, vecMatrix.numRows(), vecMatrix.numCols() * times)
         }
         case blockMatrix: BlockMatrix => {

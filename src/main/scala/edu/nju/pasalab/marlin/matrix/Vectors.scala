@@ -9,6 +9,8 @@ import java.util.Arrays
 
 import scala.annotation.varargs
 import scala.collection.JavaConverters._
+import scala.reflect.ClassTag
+import scala.{specialized => spec}
 
 import breeze.linalg.{Vector => BV, DenseVector => BDV, SparseVector => BSV}
 import org.apache.hadoop.io.Writable
@@ -132,6 +134,14 @@ object Vectors {
       new SparseVector(v.length, v.index.slice(0, v.used), v.data.slice(0, v.used))
     }
   }
+}
+
+/**
+ * new densevector directly extends from breeze.linalg.DenseVector
+ * @param data
+ */
+class NewDenseVector(data: Array[Double]) extends BDV(data) {
+  override def toString(): String = data.mkString(",")
 }
 
 /**

@@ -32,17 +32,20 @@ trait DistributedMatrix extends Serializable {
   /** Matrix-matrix subtract another matrix */
   def subtract(other: DistributedMatrix): DistributedMatrix
 
-  /** Element-wise multiply another element */
+//  /** Element-wise multiply another element */
   def multiply(d: Double): DistributedMatrix
 
   /** Matrix-matrix multiply another matrix */
-  def multiply(other: DistributedMatrix, cores: Int): BlockMatrix
+//  def multiply(other: DistributedMatrix): BlockMatrix
 
   /** Element-wise divide another element */
   def divide(d: Double): DistributedMatrix
 
   /** Element-wise divide by another element */
   def divideBy(d: Double): DistributedMatrix
+
+   /** count the rows of DenseVecMatrix, or the sub-blocks of BlockMatrix  **/
+  def elementsCount(): Long
 
   /** sum all the elements in matrix, note the Double.MaxValue = 1.7976931348623157E308 */
   def sum(): Double
@@ -63,7 +66,7 @@ trait DistributedMatrix extends Serializable {
   def saveToFileSystem(path: String)
 
   /** Save the matrix to filesystem in binary sequence format */
-  def saveSequenceFile(path: String)
+//  def saveSequenceFile(path: String)
 
   /** Print the matrix out, if the matrix is too large, it will print part */
   def print()

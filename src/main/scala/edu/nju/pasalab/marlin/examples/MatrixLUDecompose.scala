@@ -1,6 +1,6 @@
 package edu.nju.pasalab.marlin.examples
 
-import breeze.linalg.{ DenseMatrix => BDM }
+import breeze.linalg.{ DenseMatrix => BDM, DenseVector => BDV }
 import com.esotericsoftware.kryo.Kryo
 import org.apache.spark.serializer.KryoRegistrator
 import org.apache.spark.{ SparkContext, SparkConf }
@@ -40,7 +40,7 @@ object MatrixLUDecompose {
     val raw = sc.textFile(args(0)).map(line => {
       val li = line.split(':')
       val values = li(1).split(',').map(_.toDouble)
-      (li(0).toLong, Vectors.dense(values))
+      (li(0).toLong, BDV(values))
     }).repartition(cores)
 
     val mat = new DenseVecMatrix(raw, args(1).toLong, args(2).toInt)
