@@ -44,11 +44,9 @@ object MatrixLUDecompose {
     }).repartition(cores)
 
     val mat = new DenseVecMatrix(raw, args(1).toLong, args(2).toInt)
-    val (l, u, p) = mat.blockLUDecompose()
+    val (lu, p) = mat.luDecompose()
 
-    /** the result should be a zero matrix */
-    val result = l.multiply(u, 192).subtract(mat.rowExchange(p))
-    result.saveToFileSystem(args(3))
+    lu.saveToFileSystem(args(3))
 
     sc.stop()
   }
