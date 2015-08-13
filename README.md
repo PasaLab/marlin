@@ -11,7 +11,7 @@ This branch(spark-marlin) built on a custom version Spark to get better performa
 As Marlin is built on top of Spark, you need to get the Spark installed first.  If you are not clear how to setup Spark, please refer to the guidelines [here](http://spark.apache.org/docs/latest/). Currently, Marlin is developed on the APIs of Spark 1.4.0 version.
 
 ##Compile Marlin
-We have offered a default `build.sbt` file, make sure you have installed [sbt](http://www.scala-sbt.org/), and you can just type `sbt package`	to get a package, or type `sbt assembly` to get a assembly jar. 
+We use Maven to build our project currently, you can just type `mvn package -DskipTests` to get the jar package. Moreover, you can assign profile e.g. `spark-1.3`, `spark-1.2`, `hadoop-2.4`,  to build Marlin according to your environment.
 
 As the API changes in Breeze, we have specially created a new branch named spark-1.0.x which means it is compatible with Spark version 1.0.x, while the master branch mainly focus on the later newest versions of Spark
 

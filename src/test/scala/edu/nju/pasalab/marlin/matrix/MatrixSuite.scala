@@ -329,25 +329,6 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
     assert(blkSeq2.contains(new BlockID(1, 1), BDM((1.0, 1.0), (0.0, 1.0))))
   }
 
-  test("DenseVecMatrix lu decompose") {
-    val row = Seq(
-      (0L, BDV(1.0, 2.0, 3.0)),
-      (1L, BDV(4.0, 5.0, 6.0)),
-      (2L, BDV(7.0, 8.0, 0.0))).map(t => (t._1, t._2))
-    val mat = new DenseVecMatrix(sc.parallelize(row, 2))
-    val (l, u) = mat.luDecompose()
-    //    val (l, u) = mat.luDecompose2(4)
-    //    l.print()
-    //    u.print()
-    val result = l.multiply(u, 4).toBreeze()
-    //    println(result.toString())
-    //    result.print()
-    val self = BDM(
-      (1.0, 2.0, 3.0),
-      (4.0, 5.0, 6.0),
-      (7.0, 8.0, 0.0))
-    assert(result === self)
-  }
 
   test("sum") {
     val mat = new DenseVecMatrix(indexRows)

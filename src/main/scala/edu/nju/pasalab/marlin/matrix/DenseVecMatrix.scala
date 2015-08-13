@@ -465,7 +465,7 @@ def luDecompose(mode: String = "auto"): (BlockMatrix, Array[Int]) = {
    * @param mode  in which manner should the result be calculated, locally or distributed
    * @return matrix A, where A * A' = Matrix
    */
-  def CholeskyDecompose(mode: String = "auto"): BlockMatrix = {
+  def choleskyDecompose(mode: String = "auto"): BlockMatrix = {
     require(numRows() == numCols(),
       s"LU decompose only support square matrix: ${numRows()} v.s ${numCols()}")
     object LUmode extends Enumeration {
