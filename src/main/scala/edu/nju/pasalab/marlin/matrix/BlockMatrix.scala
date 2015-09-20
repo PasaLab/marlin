@@ -94,19 +94,30 @@ class BlockMatrix(
    * Given split mode, multiply two block matrices together
    *
    * @param other
-   * @param spplitMode represented as (m, k, n), which means this matrix would be split to (m,k) sub-blocks,
+   * @param splitMode represented as (m, k, n), which means this matrix would be split to (m,k) sub-blocks,
    *                   and other matrix would be split to (k,n) sub-blocks
    */
-  def multiply(other: BlockMatrix, spplitMode: (Int, Int, Int)): BlockMatrix = {
-    require(numCols() == other.numRows(), s"Dimension mismatch: ${numCols()} vs ${other.numRows()}")
-    val (m, k, n) = spplitMode
-    val matA = toBlockMatrix(m, k)
-    val matB = other.toBlockMatrix(k, n)
-    matA.multiply(matB)
+  def multiply(other: DistributedMatrix, splitMode: (Int, Int, Int)): BlockMatrix = {
+    require(numCols() == other.numRows(), s"Dimension mismatch during " +
+      s"matrix-matrix multiplication: ${numCols()} vs ${other.numRows()}")
+    val (m, k, n) = splitMode
+    other match {
+      case that: BlockMatrix =>
+        val matA = toBlockMatrix(m, k)
+        val matB = that.toBlockMatrix(k, n)
+        matA.multiply(matB)
+
+      case that: DenseVecMatrix =>
+        val matA = toBlockMatrix(m, k)
+        val matB = that.toBlockMatrix(k, n)
+        matA.multiply(matB)
+    }
+
   }
 
   def multiply(other: BlockMatrix): BlockMatrix = {
-    require(numCols() == other.numRows(), s"Dimension mismatch: ${numCols()} vs ${other.numRows()}")
+    require(numCols() == other.numRows(), s"Dimension mismatch " +
+      s"during matrix-matrix multiplication: ${numCols()} vs ${other.numRows()}")
     if (numBlksByCol() == other.numBlksByRow()) {
       //num of rows to be split of this matrix
       val mSplitNum = numBlksByRow()
@@ -177,18 +188,6 @@ class BlockMatrix(
     }
   }
 
-  /**
-   *
-   * @param other
-   * @param splitN how the right DenseVecMatrix would be split along column
-   */
-  def multiply(other: DenseVecMatrix, splitN: Int = 1): BlockMatrix = {
-    require(numCols() == other.numRows(), s"Dimension mismatch: ${numCols()} vs ${other.numRows()}")
-    val k = numBlksByRow()
-    val otherSplit = other.toBlockMatrix(k, splitN)
-    multiply(otherSplit)
-  }
-
 
   /**
    * element-wise multiply another number
@@ -208,7 +207,8 @@ class BlockMatrix(
    * @param v
    */
   def multiply(v: DistributedVector): DistributedVector = {
-    require(numCols() == v.length, s"dimension mismatch ${numCols()} v.s ${v.length}")
+    require(numCols() == v.length, s"Dimension mismatch " +
+      s"during matrix-matrix multiplication ${numCols()} v.s ${v.length}")
     require(numBlksByCol() == v.splitNum, s"not supported matrix or vector")
     val m = numBlksByRow()
     val vectorEmits = v.vectors.flatMap { case (id, vector) =>
@@ -243,11 +243,12 @@ class BlockMatrix(
   }
 
   /**
-   * matrix-small local matrix multiplication
+   * distributed block-matrix multiply a local small matrix
    * @param B
    */
   def multiply(B: BDM[Double]): BlockMatrix = {
-    require(numCols() == B.rows, s"Dimension mismatch: ${numCols()} vs ${B.rows}")
+    require(numCols() == B.rows, s"Dimension mismatch " +
+      s"during matrix-matrix multiplication: ${numCols()} vs ${B.rows}")
 
     val Bb = getBlocks.context.broadcast(B)
     if (numBlksByCol() == 1) {
@@ -258,16 +259,46 @@ class BlockMatrix(
     }else {
       val colBlkSize = math.ceil(numCols().toDouble / numBlksByCol().toDouble).toInt
       val blocks = getBlocks.map { case(blkId, blk) =>
-        val startCol = blkId.column * colBlkSize
-        val endCol = if ((blkId.column + 1) * colBlkSize > numCols()) {
+        val startRow = blkId.column * colBlkSize
+        val endRow = if ((blkId.column + 1) * colBlkSize > numCols()) {
           numCols().toInt
         }else {
           (blkId.column + 1) * colBlkSize
         }
-        (BlockID(blkId.row, 0), (blk.asInstanceOf[BDM[Double]] *
-          Bb.value(startCol until endCol, ::)).asInstanceOf[BDM[Double]])
+        (blkId, (blk.asInstanceOf[BDM[Double]] *
+          Bb.value(startRow until endRow, ::)).asInstanceOf[BDM[Double]])
       }.reduceByKey(_ + _)
       new BlockMatrix(blocks, numRows(), B.cols, numBlksByRow(), numBlksByCol())
+    }
+  }
+
+  /**
+   * a local small matrix multiply distributed block-matrix
+   * @param B
+   */
+  private[marlin] def multiplyBy(B: BDM[Double]): BlockMatrix ={
+    require(B.cols == numRows(), s"Dimension mismatch " +
+      s"during matrix-matrix multiplication: ${B.cols} vs ${numRows()}")
+
+    val Bb = getBlocks.context.broadcast(B)
+    if (numBlksByRow() == 1) {
+      val blocksMat = getBlocks.map{ case(blkId, blk) =>
+        (blkId, (Bb.value * blk).asInstanceOf[BDM[Double]])
+      }
+      new BlockMatrix(blocksMat, numRows(), B.cols, numBlksByRow(), numBlksByCol())
+    }else {
+      val rowBlkSize = math.ceil(numRows().toDouble / numBlksByRow().toDouble).toInt
+      val blocks = getBlocks.map { case(blkId, blk) =>
+        val startCol = blkId.row * rowBlkSize
+        val endCol = if ((blkId.row + 1) * rowBlkSize > numCols()) {
+          numCols().toInt
+        }else {
+          (blkId.row + 1) * rowBlkSize
+        }
+        (blkId, (Bb.value(::, startCol until endCol) *
+          blk.asInstanceOf[BDM[Double]]).asInstanceOf[BDM[Double]])
+      }.reduceByKey(_ + _)
+      new BlockMatrix(blocks, B.rows, numCols(), numBlksByRow(), numBlksByCol())
     }
   }
 
