@@ -275,12 +275,12 @@ class DenseVecMatrix(
   }
 
   /**
-   * This is an experimental implementation of block cholesky decomposition. The method is still in progress.
-   * Cholesky decompose this DenseVecMatrix to generate a lower triangular matrix L
-   * where A = L * L.transpose
+   * This is an experimental implementation of block lu decomposition. The method is still in progress.
+   * LU decompose this DenseVecMatrix to generate a lower triangular matrix L abd a upper matrix U
+   * where A = L * U, BlockMatrix in the result contains the lower part and the upper part, and
+   * Array[Int] means the permutation array.
    *
    * @param mode  in which manner should the result be calculated, locally or distributed
-   * @return denseVecMatrix L where A = L * L.transpose
    */
 def luDecompose(mode: String = "auto"): (BlockMatrix, Array[Int]) = {
     require(numRows() == numCols(),
@@ -567,7 +567,7 @@ def luDecompose(mode: String = "auto"): (BlockMatrix, Array[Int]) = {
   }
 
   /**
-   * get the inverse of the triangular matrix
+   * get the inverse of a square matrix
    * @param mode  in which manner should the inverse be calculated, locally or distributed
    * @return
    */
