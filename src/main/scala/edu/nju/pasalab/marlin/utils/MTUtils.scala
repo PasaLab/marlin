@@ -64,9 +64,11 @@ object MTUtils {
       nRows: Long,
       nColumns: Int,
       numPartitions: Int = 0,
-      distribution: RandomDataGenerator[Double] = new UniformGenerator(0.0, 1.0)): DenseVecMatrix = {
+      distribution: RandomDataGenerator[Double] = new UniformGenerator(0.0, 1.0))
+  : DenseVecMatrix = {
     
-    val rows = RandomRDDs.randomDenVecRDD(sc, distribution, nRows, nColumns, numPartitionsOrDefault(sc, numPartitions))
+    val rows = RandomRDDs.randomDenVecRDD(sc, distribution, nRows, nColumns,
+      numPartitionsOrDefault(sc, numPartitions))
     new DenseVecMatrix(rows, nRows, nColumns)
   }
 
@@ -277,7 +279,6 @@ object MTUtils {
   def loadMatrixFile(sc: SparkContext, path: String, minPartitions: Int = 4): DenseVecMatrix = {
     if (!path.startsWith("hdfs://") && !path.startsWith("tachyon://")
       && !path.startsWith("/") && !path.startsWith("~/")) {
-      System.err.println("the path is not in local file System, HDFS or Tachyon")
       throw new IllegalArgumentException("the path is not in local file System, HDFS or Tachyon")
     }
     val file = sc.textFile(path, minPartitions)

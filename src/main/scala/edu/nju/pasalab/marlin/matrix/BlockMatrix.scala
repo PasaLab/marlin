@@ -90,6 +90,43 @@ class BlockMatrix(
     mat
   }
 
+  def multiply(other: DistributedMatrix,
+               cores: Int,
+               broadcastThreshold: Int = 300): DistributedMatrix = {
+    require(numCols == other.numRows(),
+      s"Dimension mismatch during matrix-matrix multiplication: ${numCols()} vs ${other.numRows()}")
+    other match {
+      case that: DenseVecMatrix =>
+        val broadcastSize = broadcastThreshold * 1024 * 1024 / 8
+        if (that.numRows() * that.numCols() <= broadcastSize) {
+          multiply(that.toBreeze())
+        } else if (numRows() * numCols() <= broadcastSize) {
+          that.multiply(this.toBreeze())
+        } else if (0.8 < (numRows() * that.numCols()).toDouble / (numCols() * numCols()).toDouble
+          && (numRows() * that.numCols()).toDouble / (numCols() * numCols()).toDouble < 1.2
+          && numRows() / numCols() < 1.2
+          && numRows() / numCols() > 0.8) {
+          val split = math.floor(math.pow(3 * cores, 1.0 / 3.0)).toInt
+          multiply(that, (split, split, split))
+        } else {
+          val splitMethod =
+            MTUtils.splitMethod(numRows(), numCols(), other.numCols(), cores)
+          multiply(that, splitMethod)
+        }
+      case that: BlockMatrix =>
+        val broadSize = broadcastThreshold * 1024 * 1024 / 8
+        if (that.numRows() * that.numCols() <= broadSize) {
+          this.multiply(that.toBreeze())
+        } else if(this.numRows() * this.numCols() <= broadSize ){
+          that.multiplyBy(this.toBreeze())
+        }else{
+          val splitMethod =
+            MTUtils.splitMethod(numRows(), numCols(), other.numCols(), cores)
+          multiply(that, splitMethod)
+        }
+    }
+  }
+
   /**
    * Given split mode, multiply two block matrices together
    *

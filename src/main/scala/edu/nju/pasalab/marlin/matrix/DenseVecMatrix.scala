@@ -198,10 +198,10 @@ class DenseVecMatrix(
   def multiply(other: DistributedMatrix,
                      cores: Int,
                      broadcastThreshold: Int = 300): DistributedMatrix = {
+    require(numCols == other.numRows(),
+      s"Dimension mismatch during matrix-matrix multiplication: ${numCols()} vs ${other.numRows()}")
     other match {
       case that: DenseVecMatrix =>
-        require(numCols == that.numRows(),
-          s"Dimension mismatch during matrix-matrix multiplication: ${numCols()} vs ${that.numRows()}")
         val broadcastSize = broadcastThreshold * 1024 * 1024 / 8
         if (that.numRows() * that.numCols() <= broadcastSize) {
           multiply(that.toBreeze())
