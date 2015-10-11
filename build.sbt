@@ -4,7 +4,7 @@ assemblySettings
 
 name := "marlin"
 
-version := "0.2-SNAPSHOT"
+version := "0.3"
 
 libraryDependencies  ++= Seq(
             // for hadoop 2.4

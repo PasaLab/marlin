@@ -92,6 +92,32 @@ class DenseVecMatrix(
     cores
   }
 
+
+  def cpmm(other: DistributedMatrix, splitMode: (Int, Int, Int)): BlockMatrix = {
+    require(numCols() == other.numRows(), s"Dimension mismatch " +
+      s"during matrix-matrix multiplication: ${numCols()} vs ${other.numRows()}")
+    val (m, k, n) = splitMode
+    val thisEmits = toBlockMatrix(m, k).getBlocks.map{
+      case(blkId, blk) => (blkId.column, (blkId, blk))
+    }
+    val otherEmits = other match {
+      case that: DenseVecMatrix =>
+        that.toBlockMatrix(k, n).getBlocks.map{
+          case(blkId, blk) => (blkId.row, (blkId, blk))
+        }
+      case that: BlockMatrix =>
+        that.toBlockMatrix(k, n).getBlocks.map{
+          case(blkId, blk) => (blkId.row, (blkId, blk))
+        }
+    }
+    val result = thisEmits.join(otherEmits).map{
+      case(column, ((blkId1, blk1), (blkId2, blk2))) =>
+        (BlockID(blkId1.row, blkId2.column),
+          (blk1 * blk2).asInstanceOf[BDM[Double]])
+    }.reduceByKey(_ + _)
+    new BlockMatrix(result, numRows(), other.numCols(), m, n)
+  }
+
   /**
    * This function is used to satisfy the
    * @param other

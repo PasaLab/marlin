@@ -104,6 +104,55 @@ class BlockMatrix(
     matA.multiply(matB)
   }
 
+  /**
+   * test for joinBroadcast optimization
+   * @param other
+   * @return
+   */
+  def multiplyJoinBroadcast(other: BlockMatrix): BlockMatrix = {
+    require(numCols() == other.numRows(), s"Dimension mismatch: ${numCols()} vs ${other.numRows()}")
+    require(numBlksByCol() == other.numBlksByRow(),
+      s"block dimension mismatch: ${numBlksByCol()} vs ${other.numBlksByRow()}")
+    val mSplitNum = numBlksByRow()
+    val kSplitNum = numBlksByCol()
+    val nSplitNum = other.numBlksByCol()
+    val partitioner = new MatrixMultPartitioner(mSplitNum, kSplitNum, nSplitNum)
+    val thisEmitBlocks = blocks.flatMap({ case (blkId, blk) =>
+      Iterator.tabulate[(BlockID, BDM[Double])](nSplitNum)(i => {
+          val seq = blkId.row * nSplitNum * kSplitNum + i * kSplitNum + blkId.column
+          (BlockID(blkId.row, i, seq), blk)})
+    }).partitionBy(partitioner)
+    val otherEmitBlocks = other.blocks.flatMap({ case (blkId, blk) =>
+      Iterator.tabulate[(BlockID, BDM[Double])](mSplitNum)(i => {
+          val seq = i * nSplitNum * kSplitNum + blkId.column * kSplitNum + blkId.row
+          (BlockID(i, blkId.column, seq), blk)
+        })
+    }) //.partitionBy(partitioner)
+    if (kSplitNum != 1) {
+      val otherBlocks = thisEmitBlocks.context.joinBroadcast(otherEmitBlocks)
+      val result = thisEmitBlocks.mapPartitions(iter =>
+        iter.map { block =>
+          val blkId = block._1
+          val b2 = otherBlocks.getValue(blkId)
+          val t0 = System.currentTimeMillis()
+          val b1 = block._2.asInstanceOf[BDM[Double]]
+          val c = (b1 * b2).asInstanceOf[BDM[Double]]
+          (new BlockID(blkId.row, blkId.column), c)
+        }).reduceByKey(_ + _)
+      new BlockMatrix(result, numRows(), other.numCols(), mSplitNum, nSplitNum)
+    }else {
+      val otherBlocks = thisEmitBlocks.context.joinBroadcast(otherEmitBlocks)
+      val result = thisEmitBlocks.map({ block =>
+        val blkId = block._1
+        val b1 = block._2.asInstanceOf[BDM[Double]]
+        val b2 = otherBlocks.getValue(blkId)
+        val c = (b1 * b2).asInstanceOf[BDM[Double]]
+        (new BlockID(blkId.row, blkId.column), c)
+      })
+      new BlockMatrix(result, numRows(), other.numCols(), mSplitNum, nSplitNum)
+    }
+  }
+
   def multiply(other: BlockMatrix): BlockMatrix = {
     require(numCols() == other.numRows(), s"Dimension mismatch: ${numCols()} vs ${other.numRows()}")
     if (numBlksByCol() == other.numBlksByRow()) {
