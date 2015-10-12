@@ -4,7 +4,7 @@ import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV}
 import edu.nju.pasalab.marlin.utils.MTUtils
 import scala.collection.mutable.ArrayBuffer
 import scala.{specialized => spec}
-import edu.nju.pasalab.marlin.rdd.MatrixMultPartitioner
+import edu.nju.pasalab.marlin.rdd.{RMMPartitioner, MatrixMultPartitioner}
 import org.apache.hadoop.io.{Text, NullWritable}
 import org.apache.hadoop.mapred.TextOutputFormat
 import org.apache.spark.{Partitioner, Logging, HashPartitioner}
@@ -149,6 +149,63 @@ class BlockMatrix(
         val c = (b1 * b2).asInstanceOf[BDM[Double]]
         (new BlockID(blkId.row, blkId.column), c)
       })
+      new BlockMatrix(result, numRows(), other.numCols(), mSplitNum, nSplitNum)
+    }
+  }
+
+  def cpmm(other: BlockMatrix): BlockMatrix = {
+    require(numCols() == other.numRows(), s"Dimension mismatch: ${numCols()} vs ${other.numRows()}")
+    require(numBlksByCol() == other.numBlksByRow(),
+      s"block dimension mismatch: ${numBlksByCol()} vs ${other.numBlksByRow()}")
+    val thisEmits = getBlocks.map{
+      case(blkId, blk) => (blkId.column, (blkId, blk))
+    }
+    val otherEmits = other.getBlocks.map{
+      case(blkId, blk) => (blkId.row, (blkId, blk))
+    }
+    val result = thisEmits.join(otherEmits).map{
+      case(column, ((blkId1, blk1), (blkId2, blk2))) =>
+        (BlockID(blkId1.row, blkId2.column),
+          (blk1 * blk2).asInstanceOf[BDM[Double]])
+    }.reduceByKey(_ + _)
+    new BlockMatrix(result, numRows(), other.numCols(), numBlksByRow(), other.numBlksByCol())
+  }
+
+  def rmm(other: BlockMatrix): BlockMatrix = {
+    require(numCols() == other.numRows(), s"Dimension mismatch: ${numCols()} vs ${other.numRows()}")
+    require(numBlksByCol() == other.numBlksByRow(),
+      s"block dimension mismatch: ${numBlksByCol()} vs ${other.numBlksByRow()}")
+    val mSplitNum = numBlksByRow()
+    val kSplitNum = numBlksByCol()
+    val nSplitNum = other.numBlksByCol()
+//    val rowsPerPart = (numRows() / numBlksByRow()).toInt
+//    val colsPerPart = (other.numCols() / other.numBlksByCol()).toInt
+    val partitioner = RMMPartitioner(numBlksByRow(), other.numBlksByCol(),
+      math.max(blocks.partitions.length, other.blocks.partitions.length))
+    val thisEmitBlocks = blocks.flatMap({ case (blkId, blk) =>
+      Iterator.tabulate[(BlockID, BDM[Double])](nSplitNum)(i => {
+          (BlockID(blkId.row, i, blkId.column), blk)})
+    }).partitionBy(partitioner)
+    val otherEmitBlocks = other.blocks.flatMap({ case (blkId, blk) =>
+      Iterator.tabulate[(BlockID, BDM[Double])](mSplitNum)(i => {
+          (BlockID(i, blkId.column, blkId.row), blk)
+        })
+    }).partitionBy(partitioner)
+    if (kSplitNum != 1) {
+      val result = thisEmitBlocks.join(otherEmitBlocks).mapPartitions(iter =>
+        iter.map { case (blkId, (block1, block2)) =>
+          val c: BDM[Double] = block1.asInstanceOf[BDM[Double]] * block2.asInstanceOf[BDM[Double]]
+          (BlockID(blkId.row, blkId.column), c)
+        }
+      ).reduceByKey((a, b) => a + b)
+      new BlockMatrix(result, numRows(), other.numCols(), mSplitNum, nSplitNum)
+    } else {
+      val result = thisEmitBlocks.join(otherEmitBlocks).mapPartitions(iter =>
+        iter.map { case (blkId, (block1, block2)) =>
+          val c: BDM[Double] = block1.asInstanceOf[BDM[Double]] * block2.asInstanceOf[BDM[Double]]
+          (BlockID(blkId.row, blkId.column), c)
+        }
+      )
       new BlockMatrix(result, numRows(), other.numCols(), mSplitNum, nSplitNum)
     }
   }

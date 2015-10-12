@@ -1,5 +1,6 @@
 package edu.nju.pasalab.marlin.rdd
 
+import edu.nju.pasalab.marlin.matrix.BlockID
 import org.apache.spark.{Logging, Partitioner}
 
 private[marlin] class RMMPartitioner(
@@ -31,6 +32,8 @@ private[marlin] class RMMPartitioner(
         getPartitionId(i, j)
       case (i: Int, j: Int, _: Int) =>
         getPartitionId(i, j)
+      case (blkId: BlockID) =>
+        getPartitionId(blkId.row, blkId.column)
       case _ =>
         throw new IllegalArgumentException(s"Unrecognized key: $key.")
     }
@@ -54,4 +57,19 @@ private[marlin] class RMMPartitioner(
   }
 
 
+}
+
+private[marlin] object RMMPartitioner {
+
+  def apply(rows: Int, cols: Int, rowsPerPart: Int, colsPerPart: Int): RMMPartitioner = {
+    new RMMPartitioner(rows, cols, rowsPerPart, colsPerPart)
+  }
+
+  def apply(rows: Int, cols: Int, suggestedNumPartitions: Int): RMMPartitioner = {
+    require(suggestedNumPartitions > 0)
+    val scale = 1.0 / math.sqrt(suggestedNumPartitions)
+    val rowsPerPart = math.round(math.max(scale * rows, 1.0)).toInt
+    val colsPerPart = math.round(math.max(scale * cols, 1.0)).toInt
+    new RMMPartitioner(rows, cols, rowsPerPart, colsPerPart)
+  }
 }

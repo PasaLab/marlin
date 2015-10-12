@@ -118,6 +118,28 @@ class DenseVecMatrix(
     new BlockMatrix(result, numRows(), other.numCols(), m, n)
   }
 
+  def mapmm(other: BDM[Double]): DenseVecMatrix = {
+    require(numCols() == other.rows, s"Dimension mismatch " +
+      s"during matrix-matrix multiplication: ${numCols()} vs ${other.rows}")
+    val Bb = rows.context.broadcast(other.toDenseVector.toArray)
+    val n = numCols().toInt
+    val k = other.cols
+    val AB = rows.mapPartitions{ iter =>
+      val Bi = Bb.value
+      iter.map{case(index, row) =>
+          val v = BDV.zeros[Double](k)
+          var i = 0
+          while (i < k) {
+            v(i) = row.dot(new BDV(Bi, i * n, 1, n))
+            i += 1
+          }
+        (index, v)
+      }
+    }
+    new DenseVecMatrix(AB, numRows(), k.toLong)
+  }
+
+
   /**
    * This function is used to satisfy the
    * @param other
