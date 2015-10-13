@@ -27,7 +27,11 @@ object RMMcompare {
     val k = args(5).toInt
     val n = args(6).toInt
     val matrixA = MTUtils.randomBlockMatrix(sc, rowA, colA, m, k)
+    // this step used to distribute blocks uniformly across the custer
+    matrixA.blocks.count()
     val matrixB = MTUtils.randomBlockMatrix(sc, rowB, colB, k, n)
+    // this step used to distribute blocks uniformly across the custer
+    matrixB.blocks.count()
     println("=========================================")
     println(s"RMMcompare matrixA: $rowA by $colA ; matrixB: $rowB by $colB, mode: $mode " +
       s"m, k, n: $m, $k, $n; ${Calendar.getInstance().getTime}")
