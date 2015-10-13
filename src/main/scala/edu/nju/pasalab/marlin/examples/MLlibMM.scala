@@ -76,7 +76,8 @@ object MLlibMM {
           (index, Matrices.rand(r, c, rng))}
 
         val matA = new BlockMatrix(blocksA, rowsPerBlockA, colsPerBlockA, rowA, colA)
-
+        // this step used to distribute blocks uniformly across the custer
+        matA.blocks.count()
         val rowsPerBlockB = math.ceil(1.0 * rowB / k).toInt
         val colsPerBlockB = math.ceil(1.0 * colB / n).toInt
         val blocksB = sc.parallelize(indicesB, k*n).map{index =>
@@ -89,6 +90,8 @@ object MLlibMM {
           (index, Matrices.rand(r, c, rng))}
 
         val matB = new BlockMatrix(blocksB, rowsPerBlockB, colsPerBlockB, rowB, colB)
+        // this step used to distribute blocks uniformly across the custer
+        matB.blocks.count()
         val t0 = System.currentTimeMillis()
         val result = matA.multiply(matB)
         println(result.blocks.count())
