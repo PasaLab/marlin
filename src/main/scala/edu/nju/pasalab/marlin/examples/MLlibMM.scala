@@ -62,20 +62,35 @@ object MLlibMM {
             indicesB(ind) = (i, j)
           }
         }
-        val rowsPerBlockA = rowA / m
-        val colsPerBlockA = colA / k
+
+        val rowsPerBlockA = math.ceil(1.0 * rowA / m).toInt
+        val colsPerBlockA = math.ceil(1.0 * colA / k).toInt
         val rng = new Random()
         val blocksA = sc.parallelize(indicesA, m*k).map{index =>
-          (index, Matrices.rand(rowsPerBlockA, colsPerBlockA, rng))}
+          val r = if (rowA < rowsPerBlockA * (index._1 + 1)){
+            rowA - rowsPerBlockA * index._1
+          }else rowsPerBlockA
+          val c = if (colA < colsPerBlockA * (index._2 + 1)){
+            colA - colsPerBlockA * index._2
+          }else colsPerBlockA
+          (index, Matrices.rand(r, c, rng))}
+
         val matA = new BlockMatrix(blocksA, rowsPerBlockA, colsPerBlockA, rowA, colA)
 
-        val rowsPerBlockB = rowB / k
-        val colsPerBlockB = colB / n
+        val rowsPerBlockB = math.ceil(1.0 * rowB / k).toInt
+        val colsPerBlockB = math.ceil(1.0 * colB / n).toInt
         val blocksB = sc.parallelize(indicesB, k*n).map{index =>
-          (index, Matrices.rand(rowsPerBlockB, colsPerBlockB, rng))}
+          val r = if (rowA < rowsPerBlockB * (index._1 + 1)){
+            rowA - rowsPerBlockB * index._1
+          }else rowsPerBlockB
+          val c = if (colA < colsPerBlockB * (index._2 + 1)){
+            colA - colsPerBlockB * index._2
+          }else colsPerBlockB
+          (index, Matrices.rand(r, c, rng))}
+
         val matB = new BlockMatrix(blocksB, rowsPerBlockB, colsPerBlockB, rowB, colB)
         val t0 = System.currentTimeMillis()
-        val result = matA.multiply(matA)
+        val result = matA.multiply(matB)
         println(result.blocks.count())
         println(s"MLlib RMM used time ${(System.currentTimeMillis() - t0)} millis " +
           s";${Calendar.getInstance().getTime}")
