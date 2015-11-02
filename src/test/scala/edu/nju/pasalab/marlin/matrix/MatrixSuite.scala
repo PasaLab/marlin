@@ -147,7 +147,6 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
 
   test("generate random sparse matrix"){
     val s = MTUtils.randomSpaVecMatrix(sc, 10, 8, 0.3)
-//    s.rows.collect().foreach{ case(a, b) => println(b.data.mkString(","))}
     assert(s.nRows == 10L)
   }
 
@@ -196,8 +195,6 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
     assert(mat.multiply(2).toBreeze() === addSelf)
     assert(mat.divide(2).toBreeze() === divide2)
     val ma = new BlockMatrix(blocks)
-    //    val denVecMat = new DenseVecMatrix(rows)
-
     assert(ma.add(1).toBreeze() === eleAdd1)
     assert(ma.add(ma).toBreeze() === addSelf)
     assert(ma.add(mat).toBreeze() === addSelf)
@@ -225,16 +222,6 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
     assert(mat.sliceByColumn(1, 2).toBreeze() === sliceCol1To2)
     assert(mat.getSubMatrix(1, 2, 1, 2).toBreeze() === sub1212)
   }
-
-//  test("DenseVecMatrix multiply a DenseVecMatrix in block-approach") {
-//    val mat = new DenseVecMatrix(indexRows)
-//    val result = mat.multiplyHama(mat, 2)
-//    val blkSeq = result.blocks.collect().toSeq
-//    assert(blkSeq.contains(new BlockID(0, 0), BDM((11.0, 10.0), (23.0, 24.0))))
-//    assert(blkSeq.contains(new BlockID(0, 1), BDM((9.0, 8.0), (25.0, 26.0))))
-//    assert(blkSeq.contains(new BlockID(1, 0), BDM((7.0, 11.0), (6.0, 7.0))))
-//    assert(blkSeq.contains(new BlockID(1, 1), BDM((15.0, 19.0), (8.0, 9.0))))
-//  }
 
   test("DenseVecMatrix multiply a DenseVecMatrix, and select broadcast-approach") {
     val mat = new DenseVecMatrix(indexRows)
@@ -436,10 +423,6 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
     val blk1 = mat.toBlockMatrix(2, 2)
     val blk2 = mat.toBlockMatrix(1, 4)
     val m = blk1.toBlockMatrix(2, 1)
-    println(s"this toBreeze: ${m.toBreeze()}")
-    println(s"other toBreeze: ${blk2.toBreeze()}")
-    println(s"block matrix info: numRows: ${m.numRows()}, numCols: ${m.numCols()}, " +
-      s"blksByRow: ${m.numBlksByRow()}, blksByCol: ${m.numBlksByCol()}")
     val result = m.multiply(blk2)
     val expected = BDM(
       (11.0, 10.0, 9.0, 8.0),
@@ -462,9 +445,7 @@ class MatrixSuite extends FunSuite with LocalSparkContext {
       (7.0, 11.0, 15.0, 19.0),
       (6.0, 7.0, 8.0, 9.0))
     val result = blkMat.multiply(local)
-//    result.print()
     assert(result.toBreeze() === expected)
-
   }
 
 }

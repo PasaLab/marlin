@@ -80,12 +80,10 @@ class BlockMatrix(
     val mat = BDM.zeros[Double](m, n)
     blocks.collect().foreach {
       case (blkID, matrix) =>
-        val rowStart = blkID.row
-        val colStart = blkID.column
-        matrix.activeIterator.foreach {
-          case ((i, j), v) =>
-            mat(rowStart * mostBlkRowLen + i, colStart * mostBlkColLen + j) = v
-        }
+        val rowStart = blkID.row * mostBlkRowLen
+        val colStart = blkID.column * mostBlkColLen
+        mat(rowStart until rowStart + matrix.rows,
+          colStart until colStart + matrix.cols) := matrix
     }
     mat
   }
@@ -302,7 +300,7 @@ class BlockMatrix(
         }else {
           (blkId.column + 1) * colBlkSize
         }
-        (blkId, (blk.asInstanceOf[BDM[Double]] *
+        (BlockID(blkId.row, 0), (blk.asInstanceOf[BDM[Double]] *
           Bb.value(startRow until endRow, ::)).asInstanceOf[BDM[Double]])
       }.reduceByKey(_ + _)
       new BlockMatrix(blocks, numRows(), B.cols, numBlksByRow(), numBlksByCol())
