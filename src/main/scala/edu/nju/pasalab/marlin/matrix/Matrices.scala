@@ -4,7 +4,9 @@ package edu.nju.pasalab.marlin.matrix
  * Notice: some code is copy from mllib to make it compatible, and we change some of them
  */
 
-import breeze.linalg.{Matrix => BM, DenseMatrix => BDM}
+import breeze.linalg.{Matrix => BM, DenseMatrix => BDM, CSCMatrix}
+
+import scala.collection.mutable.ArrayBuffer
 
 /**
  * Trait for a local matrix.
@@ -17,8 +19,8 @@ trait Matrix extends Serializable {
   /** Number of columns. */
   def numCols: Int
 
-  /** Converts to a dense array in column major. */
-  def toArray: Array[Double]
+//  /** Converts to a dense array in column major. */
+//  def toArray: Array[Double]
 
   /** Converts to a breeze matrix. */
   private[matrix] def toBreeze: BM[Double]
@@ -48,9 +50,82 @@ class DenseMatrix(val numRows: Int, val numCols: Int, val values: Array[Double])
 
   require(values.length == numRows * numCols)
 
-  override def toArray: Array[Double] = values
+  def toArray: Array[Double] = values
 
   private[matrix] override def toBreeze: BM[Double] = new BDM[Double](numRows, numCols, values) 
+}
+
+class SparseMatrix(val numRow: Int, val numCols: Int, val values: Array[SparseVector]) extends Matrix {
+  private var nonZeros: Long = -1L
+
+  /** Number of rows. */
+  override def numRows: Int = numRows
+
+  /** Converts to a breeze matrix in `CSCMatrix` format. */
+  override private[matrix] def toBreeze: BM[Double] = {
+    require(nonZeros < Int.MaxValue, s"Sparse Matrix contains ${nonZeros} elements, larger than Int.MaxValue")
+    val colPtrs = Array.ofDim[Int](numCols + 1)
+    var start = 0
+    var c = 0
+    val (data, rowIndices) = if (nonZeros > 0) {
+      val d = Array.ofDim[Double](nonZeros.toInt)
+      val r = Array.ofDim[Int](nonZeros.toInt)
+      for (sv <- values){
+        colPtrs(c) = start
+        for(i <- 0 until sv.indices.size){
+          r(i + start) = sv.indices(i)
+          d(i + start) = sv.values(i)
+        }
+        start += sv.indices.size
+        c += 1
+      }
+      (d, r)
+    }else {
+      val d = new ArrayBuffer[Double]()
+      val r = new ArrayBuffer[Int]()
+      for(sv <- values){
+        colPtrs(c) = start
+        d ++= sv.values
+        r ++= sv.indices
+        start += sv.indices.size
+        c += 1
+      }
+      (d.toArray, r.toArray)
+    }
+    for(i <- c until numCols + 1){
+      colPtrs(i) = data.size
+    }
+    new CSCMatrix[Double](data, numRows, numCols, colPtrs, rowIndices)
+  }
+
+
+  private def vectMultiplyAdd(bval: Double, a: Array[Double], c: Array[Double],
+                              aix: Array[Int], cix: Int, alen: Int) = {
+    for(j <- 0 until alen){
+      c(cix + aix(j)) +=  bval * a(j)
+    }
+  }
+
+  def multiply(other: SparseMatrix): BDM[Double] = {
+    val c = Array.ofDim[Double](numRow * other.numCols)
+    var i , cix = 0
+    while (i < other.numCols){
+      val bcol = other.values(i)
+      val bix = bcol.indices
+      val bvals = bcol.values
+      for(k <- 0 until bix.size){
+        val bval = bvals(k)
+        val acol = values( bix(k))
+        val alen = acol.indices.size
+        val aix = acol.indices
+        val avals = acol.values
+        vectMultiplyAdd(bval, avals, c, aix, cix, alen)
+      }
+      i += 1
+      cix += numRow
+    }
+    new BDM[Double](numRows, other.numCols, c)
+  }
 }
 
 /**

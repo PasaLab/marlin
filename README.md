@@ -1,7 +1,7 @@
 Marlin
 ============
 
-A distributed matrix operations library build on top of [Spark](http://spark.apache.org/). Now, the master branch is in version 0.2-SNAPSHOT.  
+A distributed matrix operations library build on top of [Spark](http://spark.apache.org/). Now, the master branch is in version 0.4-SNAPSHOT.  
 
 ##Branches Notice
 This branch(spark-marlin) built on a custom version Spark to get better performance for matrix operations, however this branch has not been published out. If you use the official version Spark, please refer to `master` branch or `spark-1.0.x` branch  
