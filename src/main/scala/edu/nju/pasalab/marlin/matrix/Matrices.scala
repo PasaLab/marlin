@@ -55,14 +55,11 @@ class DenseMatrix(val numRows: Int, val numCols: Int, val values: Array[Double])
   private[matrix] override def toBreeze: BM[Double] = new BDM[Double](numRows, numCols, values) 
 }
 
-class SparseMatrix(val numRow: Int, val numCols: Int, val values: Array[SparseVector]) extends Matrix {
+class SparseMatrix(val numRows: Int, val numCols: Int, val values: Array[SparseVector]) extends Matrix {
   private var nonZeros: Long = -1L
 
-  /** Number of rows. */
-  override def numRows: Int = numRows
-
   /** Converts to a breeze matrix in `CSCMatrix` format. */
-  override private[matrix] def toBreeze: BM[Double] = {
+  override private[marlin] def toBreeze: BM[Double] = {
     require(nonZeros < Int.MaxValue, s"Sparse Matrix contains ${nonZeros} elements, larger than Int.MaxValue")
     val colPtrs = Array.ofDim[Int](numCols + 1)
     var start = 0
@@ -107,7 +104,7 @@ class SparseMatrix(val numRow: Int, val numCols: Int, val values: Array[SparseVe
   }
 
   def multiply(other: SparseMatrix): BDM[Double] = {
-    val c = Array.ofDim[Double](numRow * other.numCols)
+    val c = Array.ofDim[Double](numRows * other.numCols)
     var i , cix = 0
     while (i < other.numCols){
       val bcol = other.values(i)
@@ -122,7 +119,7 @@ class SparseMatrix(val numRow: Int, val numCols: Int, val values: Array[SparseVe
         vectMultiplyAdd(bval, avals, c, aix, cix, alen)
       }
       i += 1
-      cix += numRow
+      cix += numRows
     }
     new BDM[Double](numRows, other.numCols, c)
   }

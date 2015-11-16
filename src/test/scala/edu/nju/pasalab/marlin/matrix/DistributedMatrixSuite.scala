@@ -1,13 +1,12 @@
 package edu.nju.pasalab.marlin.matrix
 
-import edu.nju.pasalab.marlin.utils.{ MTUtils, LocalSparkContext }
+import edu.nju.pasalab.marlin.utils.{MarlinFunSuite, MTUtils, LocalSparkContext}
 import org.apache.spark.rdd.RDD
-import org.scalatest.FunSuite
 import breeze.linalg.{ DenseMatrix => BDM, DenseVector => BDV, SparseVector => BSV }
 
 import scala.collection.mutable.ArrayBuffer
 
-class MatrixSuite extends FunSuite with LocalSparkContext {
+class DistributedMatrixSuite extends MarlinFunSuite with LocalSparkContext {
 
   val m = 4
   val n = 4
