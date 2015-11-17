@@ -108,15 +108,19 @@ class SparseMatrix(val numRows: Int, val numCols: Int, val values: Array[SparseV
     var i , cix = 0
     while (i < other.numCols){
       val bcol = other.values(i)
-      val bix = bcol.indices
-      val bvals = bcol.values
-      for(k <- 0 until bix.size){
-        val bval = bvals(k)
-        val acol = values( bix(k))
-        val alen = acol.indices.size
-        val aix = acol.indices
-        val avals = acol.values
-        vectMultiplyAdd(bval, avals, c, aix, cix, alen)
+      if(bcol != null && bcol.indices.size != 0) {
+        val bix = bcol.indices
+        val bvals = bcol.values
+        for (k <- 0 until bix.size) {
+          if (values(bix(k)) != null && values(bix(k)).indices.size != 0) {
+            val bval = bvals(k)
+            val acol = values(bix(k))
+            val alen = acol.indices.size
+            val aix = acol.indices
+            val avals = acol.values
+            vectMultiplyAdd(bval, avals, c, aix, cix, alen)
+          }
+        }
       }
       i += 1
       cix += numRows
