@@ -4,11 +4,10 @@ import java.nio.ByteBuffer
 
 import scala.collection.mutable.ArrayBuffer
 import scala.util.hashing.MurmurHash3
-import scala.{specialized => spec}
 
 import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV, min, max}
 import org.apache.spark.SparkContext
-import org.apache.spark.SparkContext._
+import org.apache.spark.rdd.RDD
 
 import edu.nju.pasalab.marlin.matrix._
 import edu.nju.pasalab.marlin.rdd.RandomRDDs
@@ -210,6 +209,20 @@ object MTUtils {
     }
     else result = 3
     result
+  }
+
+  /**
+    * function used to evaluate time without `count` action
+    */
+  private [marlin] def evaluate[T](rdd: RDD[T]) = {
+    rdd.sparkContext.runJob(rdd, (iter: Iterator[T]) => while(iter.hasNext) iter.next())
+  }
+
+  /**
+    * function used to evaluate time without `count` action
+    */
+  private [marlin] def evaluate[K, V](rdd: RDD[(K, V)]) = {
+    rdd.sparkContext.runJob(rdd, (iter: Iterator[(K, V)]) => while(iter.hasNext) iter.next())
   }
 
   /**
