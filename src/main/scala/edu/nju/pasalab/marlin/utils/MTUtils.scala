@@ -219,13 +219,6 @@ object MTUtils {
   }
 
   /**
-    * function used to evaluate time without `count` action
-    */
-  private [marlin] def evaluate[K, V](rdd: RDD[(K, V)]) = {
-    rdd.sparkContext.runJob(rdd, (iter: Iterator[(K, V)]) => while(iter.hasNext) iter.next())
-  }
-
-  /**
    * Function to load Coordinate matrix from file
    * @param sc the running SparkContext
    * @param path the path where store the matrix
