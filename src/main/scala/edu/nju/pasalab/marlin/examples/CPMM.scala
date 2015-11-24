@@ -25,14 +25,14 @@ object CPMM {
     println(s"matrixA: $rowA by $colA ; matrixB: $rowB by $colB; " +
       s"splitMethod: $m, $k, $n, ${Calendar.getInstance().getTime}")
     val matrixA = MTUtils.randomBlockMatrix(sc, rowA, colA, m, k)
-    val matrixB = MTUtils.randomBlockMatrix(sc, rowA, colA, k, n)
+    val matrixB = MTUtils.randomBlockMatrix(sc, rowB, colB, k, n)
     // this step used to distribute blocks uniformly across the custer
     matrixA.blocks.count()
     // this step used to distribute blocks uniformly across the custer
     matrixB.blocks.count()
     val t0 = System.currentTimeMillis()
     val result = matrixA.cpmm(matrixB)
-    result.elementsCount()
+    MTUtils.evaluate(result.blocks)
     println(s"cpmm used time ${(System.currentTimeMillis() - t0)} millis " +
       s";${Calendar.getInstance().getTime}")
     println("=========================================")

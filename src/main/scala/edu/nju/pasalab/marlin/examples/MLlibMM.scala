@@ -3,6 +3,7 @@ package edu.nju.pasalab.marlin.examples
 import java.util.{Random, Calendar}
 
 import com.esotericsoftware.kryo.Kryo
+import edu.nju.pasalab.marlin.utils.MTUtils
 import org.apache.spark.mllib.linalg.{Matrix, Vectors, Matrices, DenseMatrix}
 import org.apache.spark.mllib.linalg.distributed.{IndexedRowMatrix, IndexedRow, BlockMatrix}
 import org.apache.spark.serializer.KryoRegistrator
@@ -29,7 +30,8 @@ object MLlibMM {
     if (args.length < 6) {
       println("usage: MLlibMM <matrixA row length> <matrixA column length> <matrixB column length> <mode> <m> <k> <n> ")
       println("mode 1 means BlockMatrix MM")
-      println("mode 2 means IndexedRowMatrix MM")
+      println("mode 2 means IndexedRowMatrix MM (MapMM)")
+      println("mode 3 means IndexedRowMatrix MM (RMM)")
       println("for example: MLlibMM 10000 10000 10000 1 6 6 6 ")
       System.exit(1)
     }
@@ -108,6 +110,30 @@ object MLlibMM {
         val result = matA.multiply(toLocal(matB))
         result.rows.count()
         println(s"MLlib MapMM used time ${(System.currentTimeMillis() - t0)} millis " +
+          s";${Calendar.getInstance().getTime}")
+      case 3 =>
+        val m = args(4).toInt
+        val k = args(5).toInt
+        val n = args(6).toInt
+        println(s"MLlib RMM fom IndexedRowMatrix matrixA: $rowA by $colA ; matrixB: $rowB by $colB, " +
+          s"m, k, n: $m, $k, $n; ${Calendar.getInstance().getTime}")
+        val rowsA = sc.parallelize(0L until rowA).map(row =>
+          IndexedRow(row, Vectors.dense(Vector.rand[Double](colA).toArray)))
+        val rowsB = sc.parallelize(0L until rowB).map(row =>
+          IndexedRow(row, Vectors.dense(Vector.rand[Double](colB).toArray)))
+        val indMatA = new IndexedRowMatrix(rowsA, rowA, colA)
+        val indMatB = new IndexedRowMatrix(rowsB, rowB, colB)
+        val rowsPerBlockA = math.ceil(1.0 * rowA / m).toInt
+        val colsPerBlockA = math.ceil(1.0 * colA / k).toInt
+
+        val rowsPerBlockB = math.ceil(1.0 * rowB / k).toInt
+        val colsPerBlockB = math.ceil(1.0 * colB / n).toInt
+        val t0 = System.currentTimeMillis()
+        val matA = indMatA.toBlockMatrix(rowsPerBlockA, colsPerBlockA)
+        val matB = indMatB.toBlockMatrix(rowsPerBlockB, colsPerBlockB)
+        val result = matA.multiply(matB)
+        MTUtils.evaluate(result.blocks)
+        println(s"MLlib RMM fom IndexedRowMatrix used time ${(System.currentTimeMillis() - t0)} millis " +
           s";${Calendar.getInstance().getTime}")
     }
     println("=========================================")

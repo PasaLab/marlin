@@ -39,19 +39,19 @@ object RMMcompare {
       case 1 =>
         val t0 = System.currentTimeMillis()
         val result = matrixA.rmm(matrixB)
-        result.elementsCount()
+        MTUtils.evaluate(result.blocks)
         println(s"RMM in mode $mode used time ${(System.currentTimeMillis() - t0)} millis " +
           s";${Calendar.getInstance().getTime}")
       case 2 =>
         val t0 = System.currentTimeMillis()
         val result = matrixA.multiply(matrixB)
-        result.elementsCount()
+        MTUtils.evaluate(result.blocks)
         println(s"RMMv2 in mode $mode used time ${(System.currentTimeMillis() - t0)} millis " +
           s";${Calendar.getInstance().getTime}")
       case 3 =>
         val t0 = System.currentTimeMillis()
         val result = matrixA.multiplyJoinBroadcast(matrixB)
-        result.elementsCount()
+        MTUtils.evaluate(result.blocks)
         println(s"RMMv3 with joinBroadcast in mode $mode used time ${(System.currentTimeMillis() - t0)} millis " +
           s";${Calendar.getInstance().getTime}")
     }

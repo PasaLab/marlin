@@ -34,13 +34,13 @@ object MapMMcompare {
       case 1 =>
         val t0 = System.currentTimeMillis()
         val result = matrixA.mapmm(matrixB.toBreeze())
-        result.elementsCount()
+        MTUtils.evaluate(result.rows)
         println(s"MapMM in mode $mode used time ${(System.currentTimeMillis() - t0)} millis " +
           s";${Calendar.getInstance().getTime}")
       case 2 =>
         val t0 = System.currentTimeMillis()
         val result = matrixA.multiply(matrixB.toBreeze())
-        result.elementsCount()
+        MTUtils.evaluate(result.rows)
         println(s"MapMMv2 in mode $mode used time ${(System.currentTimeMillis() - t0)} millis " +
           s";${Calendar.getInstance().getTime}")
     }

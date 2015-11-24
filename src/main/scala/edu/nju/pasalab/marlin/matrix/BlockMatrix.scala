@@ -163,7 +163,7 @@ class BlockMatrix(
     val otherEmits = other.getBlocks.map{
       case(blkId, blk) => (blkId.row, (blkId, blk))
     }
-    val result = thisEmits.join(otherEmits).map{
+    val result = thisEmits.join(otherEmits, numBlksByCol()).map{
       case(column, ((blkId1, blk1), (blkId2, blk2))) =>
         (BlockID(blkId1.row, blkId2.column),
           (blk1 * blk2).asInstanceOf[BDM[Double]])

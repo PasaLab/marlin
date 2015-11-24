@@ -2,6 +2,8 @@ package edu.nju.pasalab.marlin.utils
 
 import java.nio.ByteBuffer
 
+import org.apache.spark.rdd.RDD
+
 import scala.collection.mutable.ArrayBuffer
 import scala.util.hashing.MurmurHash3
 import scala.{specialized => spec}
@@ -209,6 +211,15 @@ object MTUtils {
     else result = 3
     result
   }
+
+  /**
+    * function used to evaluate time without `count` action
+    */
+  private [marlin] def evaluate[T](rdd: RDD[T]) = {
+    rdd.sparkContext.runJob(rdd, (iter: Iterator[T]) => while(iter.hasNext) iter.next())
+  }
+
+
 
   /**
    * Function to load Coordinate matrix from file
