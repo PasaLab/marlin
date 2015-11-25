@@ -5,8 +5,10 @@ package edu.nju.pasalab.marlin.matrix
  */
 
 import breeze.linalg.{Matrix => BM, DenseMatrix => BDM, CSCMatrix}
+import edu.nju.pasalab.marlin.utils.{UniformGenerator, RandomDataGenerator}
 
-import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable.{HashSet, ArrayBuffer}
+import scala.util.Random
 
 /**
  * Trait for a local matrix.
@@ -18,9 +20,6 @@ trait Matrix extends Serializable {
 
   /** Number of columns. */
   def numCols: Int
-
-//  /** Converts to a dense array in column major. */
-//  def toArray: Array[Double]
 
   /** Converts to a breeze matrix. */
   private[matrix] def toBreeze: BM[Double]
@@ -57,6 +56,15 @@ class DenseMatrix(val numRows: Int, val numCols: Int, val values: Array[Double])
 
 class SparseMatrix(val numRows: Int, val numCols: Int, val values: Array[SparseVector]) extends Matrix {
   private var nonZeros: Long = -1L
+
+  private[marlin] def setNNZ(nnz: Long) {
+    nonZeros = nnz
+  }
+
+  def this(rows: Int, cols: Int, values: Array[SparseVector], nnz: Long) = {
+    this(rows, cols, values)
+    setNNZ(nnz)
+  }
 
   /** Converts to a breeze matrix in `CSCMatrix` format. */
   override private[marlin] def toBreeze: BM[Double] = {
@@ -95,6 +103,21 @@ class SparseMatrix(val numRows: Int, val numCols: Int, val values: Array[SparseV
     new CSCMatrix[Double](data, numRows, numCols, colPtrs, rowIndices)
   }
 
+  def toDense: BDM[Double] = {
+    val c = Array.ofDim[Double](numRows * numCols)
+    for(i <- 0 until numCols){
+      if(values(i) != null && !values(i).isEmpty){
+        val indices = values(i).indices
+        val vals = values(i).values
+        val offset = i * numRows
+        for(k <- 0 until indices.size){
+          c( offset + indices(k)) = vals(k)
+        }
+      }
+    }
+    BDM.create[Double](numRows, numCols, c)
+  }
+
 
   private def vectMultiplyAdd(bval: Double, a: Array[Double], c: Array[Double],
                               aix: Array[Int], cix: Int, alen: Int) = {
@@ -126,6 +149,27 @@ class SparseMatrix(val numRows: Int, val numCols: Int, val values: Array[SparseV
       cix += numRows
     }
     new BDM[Double](numRows, other.numCols, c)
+  }
+}
+
+object SparseMatrix {
+
+  def rand(numRows: Int, numCols: Int, sparsity: Double): SparseMatrix = {
+    val rnd = new Random()
+    val generator = new UniformGenerator()
+    val values = Array.ofDim[SparseVector](numCols)
+    val sparseSize = (numCols * sparsity).toInt
+    for(i <- 0 until numCols){
+      val set = new HashSet[Int]()
+      while (set.size < sparseSize) {
+        set.+=(rnd.nextInt(numRows))
+      }
+      val indexes = set.toArray
+      scala.util.Sorting.quickSort(indexes)
+      values(i) = new SparseVector(numRows, indexes, Array.fill(sparseSize)(generator.nextValue()))
+    }
+    val nnz = sparseSize.toLong * numCols.toLong
+    new SparseMatrix(numRows, numCols, values, nnz)
   }
 }
 

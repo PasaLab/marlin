@@ -40,4 +40,40 @@ object LibMatrixMult {
     new BDM(m, n, c)
   }
 
+  private[marlin] def multSparseDense(sparseMat: SparseMatrix,
+                                     denseMat: BDM[Double]): BDM[Double] = {
+    require(sparseMat.numCols == denseMat.rows,
+      s"matrix dimension mismatch: ${sparseMat.numCols} v.s ${denseMat.rows}")
+    val m = sparseMat.numRows
+    val n = denseMat.cols
+    val c = Array.ofDim[Double](m * n)
+    val blocksizeI, blocksizeK = 32
+    val cd = sparseMat.numCols
+    val a = sparseMat.values
+    val b = denseMat.data
+
+    for( bi <- 0 until n by blocksizeK) {
+      for(bk <- 0 until cd by blocksizeI){
+        val bimin = Math.min(n, bi + blocksizeK)
+        val bklen = Math.min(cd, bk + blocksizeI) - bk
+        for(i <- bi until bimin){
+          val bixi = i * cd + bi
+          val cixj = i * m + 0
+
+          for( k <- 0 until bklen){
+            val value = b(bixi + k)
+            val avec = a(bk + k)
+            val alen = avec.indices.size
+            val aix = avec.indices
+            val avals = avec.values
+            for(j <- 0 until alen){
+              c( cixj + aix(j)) += value * avals(j)
+            }
+          }
+        }
+      }
+    }
+    new BDM(m, n, c)
+  }
+
 }

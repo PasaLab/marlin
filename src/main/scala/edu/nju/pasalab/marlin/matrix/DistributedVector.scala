@@ -13,14 +13,12 @@ import org.apache.spark.{SparkContext, Logging}
  * @param vectors
  * @param len the overall length of the vector
  */
-class DistributedVector(
-  private [marlin] val vectors: RDD[(Int, BDV[Double])],
-  private var len: Long,
-  private var splits: Int) extends Serializable{
+class DistributedVector(private [marlin] val vectors: RDD[(Int, DenseVector)],
+                        private var len: Long = 0L, private var splits: Int = 0) extends Serializable{
 
   private var columnMajor = true
 
-  def this(vectors: RDD[(Int, BDV[Double])]) = this(vectors, 0L, 0)
+  def this(vectors: RDD[(Int, BDV[Double])]) = this(vectors.mapValues(v => new DenseVector(v)))
 
 
   def isColumnMajor = columnMajor
@@ -45,7 +43,7 @@ class DistributedVector(
 
   def substract(v: DistributedVector): DistributedVector = {
     require(length == v.length, s"unsupported vector length: ${length} v.s ${v.length}")
-    val result = vectors.join(v.vectors).map(t => (t._1, t._2._1 - t._2._2))
+    val result = vectors.join(v.vectors).map{case(id, (v1, v2)) => (id, (v1.subtract(v2)).asInstanceOf[DenseVector])}
     new DistributedVector(result, v.length, splitNum)
   }
 
@@ -68,7 +66,7 @@ class DistributedVector(
     val result = BDV.zeros[Double](length.toInt)
     val offset = length.toInt / vecs.length
     for((id, v) <- vecs){
-      result.slice(id * offset, id * offset + v.length) := v
+      result.slice(id * offset, id * offset + v.length) := v.inner
     }
     result
   }
@@ -90,7 +88,7 @@ class DistributedVector(
       var count = 0
       val vector = iter.next()._2
       for ((vecId, (oldStart, oldEnd), (newStart, newEnd)) <- splitStatusByRow(id)) {
-        array(count) = (vecId, (newStart, newEnd, vector(oldStart to oldEnd)))
+        array(count) = (vecId, (newStart, newEnd, vector.inner(oldStart to oldEnd)))
         count += 1
       }
       array.toIterator
@@ -155,7 +153,8 @@ class DistributedVector(
         val otherVecEmits = other.getVectors.flatMap{
           case(id, v) => Iterator.tabulate(splitNum)(i => (new BlockID(i, id), v))}
         val blocks = thisVecEmits.join(otherVecEmits).map{
-          case(blkId, (v1, v2)) => (blkId, v1 * v2.t)}
+          // TODO support sparse format
+          case(blkId, (v1, v2)) => (blkId, new SubMatrix(denseMatrix = v1.inner * v2.inner.t))}
         val result = new BlockMatrix(blocks, length, length, splitNum, splitNum)
         Right(result)
       }else {
@@ -164,7 +163,8 @@ class DistributedVector(
     }else if (columnMajor == false && other.columnMajor == true){
       val result: Double = if (mode.toLowerCase().equals("dist")) {
         vectors.join(other.getVectors).map { case (id, (v1, v2)) =>
-          v1.t * v2
+          // TODO support sparse format
+          v1.inner.t * v2.inner
         }.reduce(_ + _)
       }else if (mode.toLowerCase().equals("local")){
         val v1 = toBreeze().t
@@ -184,8 +184,8 @@ class DistributedVector(
 object DistributedVector {
   def fromVector(sc: SparkContext, vector: BDV[Double], numSplits: Int): DistributedVector = {
     val vecLen = math.ceil(vector.length.toDouble / numSplits.toDouble).toInt
-    val vectors = Iterator.tabulate[(Int, BDV[Double])](numSplits)(i => (i,
-      vector.slice(i* vecLen, math.min((i + 1) * vecLen , vector.length)))).toSeq
-    new DistributedVector(sc.parallelize(vectors, numSplits), vector.length, numSplits )
+    val vectors = Iterator.tabulate[(Int, DenseVector)](numSplits)(i => (i,
+      new DenseVector(vector.slice(i* vecLen, math.min((i + 1) * vecLen , vector.length))))).toSeq
+    new DistributedVector(sc.parallelize(vectors, numSplits), vector.length, numSplits)
   }
 }

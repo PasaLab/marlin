@@ -9,8 +9,8 @@ import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV, SparseVector => BS
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{Partition, SparkContext, TaskContext}
 
-import edu.nju.pasalab.marlin.matrix.{BlockID, DenseVector}
-import edu.nju.pasalab.marlin.utils.RandomDataGenerator
+import edu.nju.pasalab.marlin.matrix._
+import edu.nju.pasalab.marlin.utils.{MTUtils, RandomDataGenerator}
 
 private[marlin] class RandomRDDPartition[T](override val index: Int,
     val start: Long,
@@ -84,24 +84,31 @@ private [marlin]  object RandomRDD {
       partition: RandomRDDPartition[Double],
       rows: Int,
       columns: Int,
-      array: Array[BlockID]): Iterator[(BlockID, BDM[Double])] = {
+      array: Array[BlockID],
+      sparseInfo: (Boolean, Double)): Iterator[(BlockID, SubMatrix)] = {
     val generator = partition.generator.copy()
     generator.setSeed(partition.seed)
 //    val arrayIt = array.slice(0 + partition.index * partition.size, array.length).toIterator
     val arrayIt = array.slice(0 + partition.start.toInt, array.length).toIterator
-    Iterator.fill(partition.size)(arrayIt.next(),
-      new BDM(rows, columns, Array.fill(rows*columns)(generator.nextValue())))
+    val (isSparse, sparsity) = sparseInfo
+    if(!isSparse) {
+      Iterator.fill(partition.size)(arrayIt.next(),
+        new SubMatrix(denseMatrix = BDM.create[Double](rows, columns, Array.fill(rows * columns)(generator.nextValue()))))
+    }else {
+      Iterator.fill(partition.size)(arrayIt.next(),
+       new SubMatrix(spMatrix = SparseMatrix.rand(rows, columns, sparsity)))
+    }
   }
 
   def getDistVectorIterator(
       partition: RandomRDDPartition[Double],
       vectorLength: Int,
-      numSplit: Int): Iterator[(Int, BDV[Double])] = {
+      numSplit: Int): Iterator[(Int, DenseVector)] = {
     val generator = partition.generator.copy()
     generator.setSeed(partition.seed)
     val index = (0 + partition.start until numSplit).toIterator
     Iterator.fill(partition.size)(index.next().toInt,
-      new BDV[Double](Array.fill(vectorLength)(generator.nextValue())))
+      Vectors.dense(Array.fill(vectorLength)(generator.nextValue())))
   }
 }
 
@@ -110,9 +117,9 @@ private[marlin] class RandomDistVectorRDD(@transient sc: SparkContext,
     length: Long,
     numSplits: Int,
     @transient rng: RandomDataGenerator[Double],
-    @transient seed: Long = System.nanoTime()) extends RDD[(Int, BDV[Double])](sc, Nil){
+    @transient seed: Long = System.nanoTime()) extends RDD[(Int, DenseVector)](sc, Nil){
   @DeveloperApi
-  override def compute(splitIn: Partition, context: TaskContext): Iterator[(Int, BDV[Double])] = {
+  override def compute(splitIn: Partition, context: TaskContext): Iterator[(Int, DenseVector)] = {
     val split = splitIn.asInstanceOf[RandomRDDPartition[Double]]
     var splitLength = math.ceil(length.toDouble / numSplits.toDouble).toInt
     if (splitIn.index == numSplits - 1){
@@ -180,12 +187,13 @@ private [marlin] class RandomBlockRDD(@transient sc: SparkContext,
     blksByRow: Int,
     blksByCol: Int,
     @transient rng: RandomDataGenerator[Double],
-    @transient seed: Long = System.nanoTime()) extends RDD[(BlockID, BDM[Double])](sc, Nil){
+    @transient seed: Long = System.nanoTime(),
+    sparseInfo: (Boolean, Double)) extends RDD[(BlockID, SubMatrix)](sc, Nil){
 
   require(blksByRow > 0 && blksByCol > 0, "Positive number of partitions required.")
   require(nRows > 0 && nColumns > 0, "Positive number of partitions required.")
 
-  override def compute(splitIn: Partition, context: TaskContext): Iterator[(BlockID, BDM[Double])] = {
+  override def compute(splitIn: Partition, context: TaskContext): Iterator[(BlockID, SubMatrix)] = {
     val split = splitIn.asInstanceOf[RandomRDDPartition[Double]]
     val array = Array.ofDim[BlockID](blksByRow * blksByCol)
     for (i <- 0 until blksByRow){
@@ -206,7 +214,7 @@ private [marlin] class RandomBlockRDD(@transient sc: SparkContext,
       }
     }
 
-    RandomRDD.getBlockIterator(split ,blockRows ,blockCols , array)
+    RandomRDD.getBlockIterator(split ,blockRows ,blockCols , array, sparseInfo)
   }
 
   override protected def getPartitions: Array[Partition] = {

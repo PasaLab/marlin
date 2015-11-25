@@ -18,12 +18,12 @@ class DistributedMatrixSuite extends MarlinFunSuite with LocalSparkContext {
     (3L, BDV(1.0, 1.0, 1.0, 1.0)),
     (1L, BDV(2.0, 3.0, 4.0, 5.0))).map(t => (t._1, t._2))
   val blks = Seq(
-    (new BlockID(0, 0), BDM((0.0, 1.0), (2.0, 3.0))),
-    (new BlockID(0, 1), BDM((2.0, 3.0), (4.0, 5.0))),
-    (new BlockID(1, 0), BDM((3.0, 2.0), (1.0, 1.0))),
-    (new BlockID(1, 1), BDM((1.0, 0.0), (1.0, 1.0)))).map(t => (t._1, t._2))
+    (new BlockID(0, 0), new SubMatrix(denseMatrix = BDM((0.0, 1.0), (2.0, 3.0)))),
+    (new BlockID(0, 1), new SubMatrix(denseMatrix = BDM((2.0, 3.0), (4.0, 5.0)))),
+    (new BlockID(1, 0), new SubMatrix(denseMatrix = BDM((3.0, 2.0), (1.0, 1.0)))),
+    (new BlockID(1, 1), new SubMatrix(denseMatrix = BDM((1.0, 0.0), (1.0, 1.0))))).map(t => (t._1, t._2))
   var indexRows: RDD[(Long, BDV[Double])] = _
-  var blocks: RDD[(BlockID, BDM[Double])] = _
+  var blocks: RDD[(BlockID, SubMatrix)] = _
   val sparseData = Seq(
     (0L, new BSV[Double](Array(1, 3), Array(2.0, 3.0), 4)),
     (1L, new BSV[Double](Array(0, 1), Array(5.0, 1.0),4)),
@@ -60,7 +60,7 @@ class DistributedMatrixSuite extends MarlinFunSuite with LocalSparkContext {
       mat.numCols()
     }
 
-    val block = sc.parallelize(Seq[(BlockID, BDM[Double])](), 1)
+    val block = sc.parallelize(Seq[(BlockID, SubMatrix)](), 1)
     val ma = new BlockMatrix(block)
     intercept[RuntimeException] {
       ma.numRows()
@@ -88,7 +88,7 @@ class DistributedMatrixSuite extends MarlinFunSuite with LocalSparkContext {
     val blkMat = mat.toBlockMatrix(2, 2)
     assert(mat.numRows() == blkMat.numRows())
     assert(mat.numCols() == blkMat.numCols())
-    val blkSeq = blkMat.blocks.collect().toSeq
+    val blkSeq = blkMat.blocks.collect().toSeq.map{case(blkId, blk) => (blkId, blk.denseBlock)}
     assert(blkSeq.contains(BlockID(0, 0), BDM((0.0, 1.0), (2.0, 3.0))))
     assert(blkSeq.contains(BlockID(0, 1), BDM((2.0, 3.0), (4.0, 5.0))))
     assert(blkSeq.contains(BlockID(1, 0), BDM((3.0, 2.0), (1.0, 1.0))))
@@ -279,7 +279,7 @@ class DistributedMatrixSuite extends MarlinFunSuite with LocalSparkContext {
 
     val ma = new BlockMatrix(blocks)
     val result2 = ma.multiply(ma)
-    val blkSeq2 = result2.blocks.collect().toSeq
+    val blkSeq2 = result2.blocks.collect().toSeq.map{case(blkId, blk) => (blkId, blk.denseBlock)}
     assert(blkSeq2.contains(new BlockID(0, 0), BDM((11.0, 10.0), (23.0, 24.0))))
     assert(blkSeq2.contains(new BlockID(0, 1), BDM((9.0, 8.0), (25.0, 26.0))))
     assert(blkSeq2.contains(new BlockID(1, 0), BDM((7.0, 11.0), (6.0, 7.0))))
@@ -302,13 +302,13 @@ class DistributedMatrixSuite extends MarlinFunSuite with LocalSparkContext {
   test("transpose") {
     val mat = new DenseVecMatrix(indexRows)
     val result = mat.transpose()
-    val blkSeq = result.blocks.collect().toSeq
+    val blkSeq = result.blocks.collect().toSeq.map{case(blkId, blk) => (blkId, blk.denseBlock)}
     assert(blkSeq.contains(new BlockID(0, 0), BDM((0.0, 2.0), (1.0, 3.0), (2.0, 4.0), (3.0, 5.0))))
     assert(blkSeq.contains(new BlockID(0, 1), BDM((3.0, 1.0), (2.0, 1.0), (1.0, 1.0), (0.0, 1.0))))
 
     val ma = new BlockMatrix(blocks)
     val result2 = ma.transpose()
-    val blkSeq2 = result2.blocks.collect().toSeq
+    val blkSeq2 = result2.blocks.collect().toSeq.map{case(blkId, blk) => (blkId, blk.denseBlock)}
     assert(blkSeq2.contains(new BlockID(0, 0), BDM((0.0, 2.0), (1.0, 3.0))))
     assert(blkSeq2.contains(new BlockID(0, 1), BDM((3.0, 1.0), (2.0, 1.0))))
     assert(blkSeq2.contains(new BlockID(1, 0), BDM((2.0, 4.0), (3.0, 5.0))))

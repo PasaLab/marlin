@@ -36,8 +36,8 @@ object MTUtils {
       nColumns: Long,
       numByRow: Int,
       numByCol: Int,
+      sparseInfo: (Boolean, Double) = (false, 1.0),
       distribution: RandomDataGenerator[Double] = new UniformGenerator(0.0, 1.0)): BlockMatrix = {
-
     val mRows = nRows.toInt
     val mColumns = nColumns
     val mBlockRowSize = math.ceil(mRows.toDouble / numByRow.toDouble).toInt
@@ -45,9 +45,10 @@ object MTUtils {
     val blksByRow = math.ceil(mRows.toDouble / mBlockRowSize).toInt
     val blksByCol = math.ceil(mColumns.toDouble / mBlockColSize).toInt
 
-    val blocks = RandomRDDs.randomBlockRDD(sc, distribution, nRows, nColumns, blksByRow, blksByCol)
+    val blocks = RandomRDDs.randomBlockRDD(sc, distribution, nRows, nColumns, blksByRow, blksByCol, sparseInfo)
     new BlockMatrix(blocks, nRows, nColumns, blksByRow, blksByCol)
   }
+
 
   /**
    * Function to generate a distributed BlockMatrix, in which every element is in the uniform distribution
@@ -331,7 +332,9 @@ object MTUtils {
         val e = t.split(":")
         val info = e(0).split("-")
         val array = e(1).split(",\\s?|\\s+").map(_.toDouble)
-        (new BlockID(info(0).toInt, info(1).toInt), new BDM[Double](info(2).toInt, info(3).toInt, array))
+      // TODO support sparse format
+        (new BlockID(info(0).toInt, info(1).toInt),
+          new SubMatrix(denseMatrix = BDM.create[Double](info(2).toInt, info(3).toInt, array)))
       })
     new BlockMatrix(blocks)
   }
@@ -380,7 +383,9 @@ object MTUtils {
         val e = b.split(":")
         val info = e(0).split("-")
         val array = e(1).split(",\\s?|\\s+").map(_.toDouble)
-        (new BlockID(info(0).toInt, info(1).toInt), new BDM[Double](info(2).toInt, info(3).toInt, array))
+        // TODO support sparse format
+        (new BlockID(info(0).toInt, info(1).toInt),
+          new SubMatrix(denseMatrix = BDM.create[Double](info(2).toInt, info(3).toInt, array)))
       })
     })
     new BlockMatrix(blocks)
@@ -410,26 +415,25 @@ object MTUtils {
 
   def matrixToArray(mat: DistributedMatrix ): Array[Array[Double]] ={
     mat match {
-      case m: DenseVecMatrix => {
+      case m: DenseVecMatrix =>
         val array = Array.ofDim[Double](m.numRows().toInt, m.numCols().toInt)
         m.rows.collect().foreach(t => t._2.toArray.copyToArray(array(t._1.toInt)) )
         array
-      }
-      case m: BlockMatrix => {
+      case m: BlockMatrix =>
         val blkRowSize = math.ceil(m.numRows().toDouble / m.numBlksByRow().toDouble).toInt
         val blkColSize = math.ceil(m.numCols().toDouble / m.numBlksByCol().toDouble).toInt
         val array = Array.ofDim[Double](m.numRows().toInt, m.numCols().toInt)
-        m.blocks.collect().foreach(t => {
-          val rowBase = t._1.row * blkRowSize
-          val colBase = t._1.column * blkColSize
-          val iterator = t._2.iterator
+        m.blocks.collect().foreach{case (blkId, subMat) =>
+          val rowBase = blkId.row * blkRowSize
+          val colBase = blkId.column * blkColSize
+          // TODO support sparse format
+          val iterator = subMat.denseBlock.iterator
           while (iterator.hasNext) {
             val ((r, c), v) = iterator.next()
             array(r + rowBase)(c + colBase) = v
           }
-        })
+        }
         array
-      }
     }
   }
 
@@ -445,19 +449,16 @@ object MTUtils {
       matrix
     }else {
       matrix match {
-        case vecMatrix: DenseVecMatrix => {
+        case vecMatrix: DenseVecMatrix =>
           val result = vecMatrix.rows.map( t =>
             (t._1, BDV(List.fill(times)(t._2.toArray).flatten.toArray)) )
           new DenseVecMatrix(result, vecMatrix.numRows(), vecMatrix.numCols() * times)
-        }
-        case blockMatrix: BlockMatrix => {
+        case blockMatrix: BlockMatrix =>
           val result = blockMatrix.blocks.flatMap( t => {
             for ( i <- 0 until times)
             yield (new BlockID(t._1.row, t._1.column + i * blockMatrix.numBlksByCol()), t._2)
           })
-          new BlockMatrix(result, blockMatrix.numRows(),
-            blockMatrix.numCols(), blockMatrix.numBlksByRow(), blockMatrix.numBlksByCol() * times)
-        }
+          new BlockMatrix(result, blockMatrix.numRows(), blockMatrix.numCols(), blockMatrix.numBlksByRow(), blockMatrix.numBlksByCol() * times)
       }
     }
   }
@@ -473,21 +474,18 @@ object MTUtils {
       matrix
     }else {
       matrix match  {
-        case vecMatrix: DenseVecMatrix => {
+        case vecMatrix: DenseVecMatrix =>
           val result = vecMatrix.rows.flatMap(t => {
             for ( i <- 0 until times)
             yield (t._1 + i * vecMatrix.numRows(), t._2)
           })
           new DenseVecMatrix(result, vecMatrix.numRows() * times, vecMatrix.numCols())
-        }
-        case  blockMatrix: BlockMatrix => {
+        case  blockMatrix: BlockMatrix =>
           val result = blockMatrix.blocks.flatMap(t =>{
             for ( i <- 0 until times)
             yield (new BlockID(t._1.row + i * blockMatrix.numBlksByRow(), t._1.column), t._2)
           })
-          new BlockMatrix(result, blockMatrix.numRows() * times, blockMatrix.numCols()
-            , blockMatrix.numBlksByRow() * times, blockMatrix.numBlksByCol())
-        }
+          new BlockMatrix(result, blockMatrix.numRows() * times, blockMatrix.numCols(), blockMatrix.numBlksByRow() * times, blockMatrix.numBlksByCol())
       }
     }
   }

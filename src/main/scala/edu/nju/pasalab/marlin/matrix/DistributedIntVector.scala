@@ -13,10 +13,8 @@ import org.apache.spark.{SparkContext, Logging}
  * @param vectors
  * @param len the overall length of the vector
  */
-class DistributedIntVector(
-                         private [marlin] val vectors: RDD[(Int, BDV[Int])],
-                         private var len: Long,
-                         private var splits: Int) extends Serializable{
+class DistributedIntVector(private [marlin] val vectors: RDD[(Int, BDV[Int])],
+                           private var len: Long, private var splits: Int) extends Serializable{
 
   private var columnMajor = true
 
@@ -45,7 +43,7 @@ class DistributedIntVector(
 
   def substract(v: DistributedIntVector): DistributedIntVector = {
     require(length == v.length, s"unsupported vector length: ${length} v.s ${v.length}")
-    val result = vectors.join(v.vectors).map(t => (t._1, t._2._1 - t._2._2))
+    val result = vectors.join(v.vectors).map{case(id, (v1, v2)) => (id, v1 - v2)}
     new DistributedIntVector(result, v.length, splitNum)
   }
 
@@ -102,7 +100,7 @@ class DistributedIntVector(
         val vector = BDV.zeros[Int](vecLen)
         val iterator = iterable.iterator
         for ((rowStart, rowEnd, vec) <- iterator) {
-          vector(rowStart to rowEnd) := vec.asInstanceOf[BDV[Int]]
+          vector(rowStart to rowEnd) := vec
         }
         (vecId, vector)
       }
@@ -186,6 +184,6 @@ object DistributedIntVector {
     val vecLen = math.ceil(vector.length.toDouble / numSplits.toDouble).toInt
     val vectors = Iterator.tabulate[(Int, BDV[Int])](numSplits)(i => (i,
       vector.slice(i* vecLen, math.min((i + 1) * vecLen , vector.length)))).toSeq
-    new DistributedIntVector(sc.parallelize(vectors, numSplits), vector.length, numSplits )
+    new DistributedIntVector(sc.parallelize(vectors, numSplits), vector.length, numSplits)
   }
 }

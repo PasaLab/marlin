@@ -25,16 +25,11 @@ import scala.util.Random
  * @param blksByRow block nums by row
  */
 
-class BlockMatrix(
-    private[marlin] val blocks: RDD[(BlockID, BDM[Double])],
-    private var nRows: Long,
-    private var nCols: Long,
-    private var blksByRow: Int,
-    private var blksByCol: Int) extends DistributedMatrix with Logging{
+class BlockMatrix(private[marlin] val blocks: RDD[(BlockID, SubMatrix)], private var nRows: Long, private var nCols: Long, private var blksByRow: Int, private var blksByCol: Int) extends DistributedMatrix with Logging{
 
 
   /** Alternative constructor leaving matrix dimensions to be determined automatically. */
-  def this(blocks: RDD[(BlockID, BDM[Double])]) = this(blocks, 0L, 0L, 0, 0)
+  def this(blocks: RDD[(BlockID, SubMatrix)]) = this(blocks, 0L, 0L, 0, 0)
 
 
   /** Gets or computes the number of rows. */
@@ -82,8 +77,9 @@ class BlockMatrix(
       case (blkID, matrix) =>
         val rowStart = blkID.row * mostBlkRowLen
         val colStart = blkID.column * mostBlkColLen
+        // TODO support sparse format
         mat(rowStart until rowStart + matrix.rows,
-          colStart until colStart + matrix.cols) := matrix
+          colStart until colStart + matrix.cols) := matrix.denseBlock
     }
     mat
   }
@@ -163,12 +159,12 @@ class BlockMatrix(
       val partitioner = new MatrixMultPartitioner(mSplitNum, kSplitNum, nSplitNum)
 
       val thisEmitBlocks = blocks.flatMap({ case(blkId, blk) =>
-        Iterator.tabulate[(BlockID, BDM[Double])](nSplitNum)(i => {
+        Iterator.tabulate[(BlockID, SubMatrix)](nSplitNum)(i => {
           val seq = blkId.row * nSplitNum * kSplitNum + i * kSplitNum + blkId.column
           (BlockID(blkId.row, i, seq), blk)})
       }).partitionBy(partitioner)
       val otherEmitBlocks = other.blocks.flatMap({ case(blkId, blk) =>
-        Iterator.tabulate[(BlockID, BDM[Double])](mSplitNum)(i => {
+        Iterator.tabulate[(BlockID, SubMatrix)](mSplitNum)(i => {
           val seq = i * nSplitNum * kSplitNum + blkId.column * kSplitNum + blkId.row
           (BlockID(i, blkId.column, seq), blk)
         })
@@ -176,16 +172,14 @@ class BlockMatrix(
       if (kSplitNum != 1) {
         val result = thisEmitBlocks.join(otherEmitBlocks).mapPartitions(iter =>
           iter.map { case (blkId, (block1, block2)) =>
-            val c: BDM[Double] = block1.asInstanceOf[BDM[Double]] * block2.asInstanceOf[BDM[Double]]
-            (BlockID(blkId.row, blkId.column), c)
+                (BlockID(blkId.row, blkId.column), block1.multiply(block2))
           }
-        ).reduceByKey((a, b) => a + b)
+        ).reduceByKey((a, b) => a.add(b))
         new BlockMatrix(result, numRows(), other.numCols(), mSplitNum, nSplitNum)
       } else {
         val result = thisEmitBlocks.join(otherEmitBlocks).mapPartitions(iter =>
           iter.map { case (blkId, (block1, block2)) =>
-            val c: BDM[Double] = block1.asInstanceOf[BDM[Double]] * block2.asInstanceOf[BDM[Double]]
-            (BlockID(blkId.row, blkId.column), c)
+            (BlockID(blkId.row, blkId.column), block1.multiply(block2))
           }
         )
         new BlockMatrix(result, numRows(), other.numCols(), mSplitNum, nSplitNum)
@@ -199,8 +193,9 @@ class BlockMatrix(
       }
       val ratio = numBlksByCol() / other.numBlksByRow()
       val otherBlks = other.blocks.flatMap { case (blkId, mat) =>
+        // TODO Update slice function
         Iterator.tabulate(ratio)(i => (new BlockID(blkId.row * ratio + i, blkId.column),
-          mat((i * mat.rows / ratio) to ((i + 1) * mat.rows / ratio - 1), ::)))
+          new SubMatrix(denseMatrix = mat.denseBlock((i * mat.rows / ratio) to ((i + 1) * mat.rows / ratio - 1), ::))))
       }
       val otherSplit = new BlockMatrix(otherBlks)
       this.multiply(otherSplit)
@@ -213,8 +208,9 @@ class BlockMatrix(
       }
       val ratio = other.numBlksByRow() / numBlksByCol()
       val thisBlks = blocks.flatMap { case (blkId, mat) =>
-        Iterator.tabulate(ratio)(i => (new BlockID(blkId.row * ratio + i, blkId.column),
-          mat((i * mat.rows / ratio) to ((i + 1) * mat.rows / ratio - 1), ::)))
+        // TODO Update slice function
+      Iterator.tabulate(ratio)(i => (new BlockID(blkId.row * ratio + i, blkId.column),
+        new SubMatrix(denseMatrix = mat.denseBlock((i * mat.rows / ratio) to ((i + 1) * mat.rows / ratio - 1), ::))))
       }
       val thisSplit = new BlockMatrix(thisBlks)
       thisSplit.multiply(other)
@@ -231,7 +227,7 @@ class BlockMatrix(
    * @return the result in BlockMatrix type
    */
   def multiply(b: Double): BlockMatrix = {
-    val result = blocks.mapValues(t => (t * b).asInstanceOf[BDM[Double]])
+    val result = blocks.mapValues(t => t.multiply(b))
     new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
   }
 
@@ -247,16 +243,16 @@ class BlockMatrix(
     require(numBlksByCol() == v.splitNum, s"not supported matrix or vector")
     val m = numBlksByRow()
     val vectorEmits = v.vectors.flatMap { case (id, vector) =>
-      Iterator.tabulate[(BlockID, BDV[Double])](m)(i => (BlockID(i, id), vector))
+      Iterator.tabulate[(BlockID, DenseVector)](m)(i => (BlockID(i, id), vector))
     }
     if (numBlksByCol() != 1) {
-      val vectors = blocks.join(vectorEmits).map { case (blkId, (mat, vec)) =>
-        (blkId.row, mat * vec)
-      }.reduceByKey(_ + _)
+      val vectors= blocks.join(vectorEmits).map { case (blkId, (mat, vec)) =>
+        (blkId.row, mat.multiply(vec))
+      }.reduceByKey((a, b) => (a.add(b)).asInstanceOf[DenseVector])
       new DistributedVector(vectors, v.length, v.splitNum)
     } else {
       val vectors = blocks.join(vectorEmits).map { case (blkId, (mat, vec)) =>
-        (blkId.row, mat * vec)
+        (blkId.row, mat.multiply(vec))
       }
       new DistributedVector(vectors, v.length, v.splitNum)
     }
@@ -272,9 +268,9 @@ class BlockMatrix(
     val vector = blocks.context.broadcast(v)
     val splits = blocks.mapPartitions(parts =>
       parts.map { case (blkID, blk) =>
-        (blkID.row, blk * vector.value)
+        (blkID.row, blk.multiply(new DenseVector(vector.value)))
       })
-    new DistributedVector(splits)
+    new DistributedVector(splits, this.numRows(), this.numBlksByRow())
   }
 
   /**
@@ -288,7 +284,7 @@ class BlockMatrix(
     val Bb = getBlocks.context.broadcast(B)
     if (numBlksByCol() == 1) {
       val blocksMat = getBlocks.map{ case(blkId, blk) =>
-        (blkId, (blk.asInstanceOf[BDM[Double]] * Bb.value).asInstanceOf[BDM[Double]])
+        (blkId, (blk.multiply(Bb.value)))
       }
       new BlockMatrix(blocksMat, numRows(), B.cols, numBlksByRow(), numBlksByCol())
     }else {
@@ -300,9 +296,8 @@ class BlockMatrix(
         }else {
           (blkId.column + 1) * colBlkSize
         }
-        (BlockID(blkId.row, 0), (blk.asInstanceOf[BDM[Double]] *
-          Bb.value(startRow until endRow, ::)).asInstanceOf[BDM[Double]])
-      }.reduceByKey(_ + _)
+        (BlockID(blkId.row, 0), (blk.multiply(Bb.value(startRow until endRow, ::))))
+      }.reduceByKey((a, b) => a.add(b))
       new BlockMatrix(blocks, numRows(), B.cols, numBlksByRow(), numBlksByCol())
     }
   }
@@ -318,7 +313,8 @@ class BlockMatrix(
     val Bb = getBlocks.context.broadcast(B)
     if (numBlksByRow() == 1) {
       val blocksMat = getBlocks.map{ case(blkId, blk) =>
-        (blkId, (Bb.value * blk).asInstanceOf[BDM[Double]])
+        // TODO support matrix-matrix multiplication between BDM and SubMatrix
+        (blkId, new SubMatrix(denseMatrix = (Bb.value * blk.denseBlock).asInstanceOf[BDM[Double]]))
       }
       new BlockMatrix(blocksMat, numRows(), B.cols, numBlksByRow(), numBlksByCol())
     }else {
@@ -330,9 +326,10 @@ class BlockMatrix(
         }else {
           (blkId.row + 1) * rowBlkSize
         }
-        (blkId, (Bb.value(::, startCol until endCol) *
-          blk.asInstanceOf[BDM[Double]]).asInstanceOf[BDM[Double]])
-      }.reduceByKey(_ + _)
+        // TODO support matrix-matrix multiplication between BDM and SubMatrix
+        (blkId, new SubMatrix(denseMatrix = (Bb.value(::, startCol until endCol) *
+          blk.denseBlock).asInstanceOf[BDM[Double]]))
+      }.reduceByKey((a, b) => a.add(b))
       new BlockMatrix(blocks, B.rows, numCols(), numBlksByRow(), numBlksByCol())
     }
   }
@@ -356,7 +353,7 @@ class BlockMatrix(
         if (numBlksByRow() != mat.numBlksByRow() || numBlksByCol() != mat.numBlksByCol()) {
           toDenseVecMatrix().add(mat.toDenseVecMatrix())
         } else {
-          val result = blocks.join(mat.blocks).mapValues(t => t._1 + t._2)
+          val result = blocks.join(mat.blocks).mapValues(t => t._1.add(t._2))
           new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
         }
     }
@@ -369,7 +366,7 @@ class BlockMatrix(
    * @return result in BlockMatrix type
    */
   final def add(b: Double): BlockMatrix = {
-    val result = blocks.mapValues(t => (t + b).asInstanceOf[BDM[Double]])
+    val result = blocks.mapValues(t => (t.add(b)))
     new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
   }
 
@@ -392,7 +389,7 @@ class BlockMatrix(
         if (numBlksByRow() != mat.numBlksByRow() || numBlksByCol() != mat.numBlksByCol()) {
           toDenseVecMatrix().subtract(mat.toDenseVecMatrix())
         } else {
-          val result = blocks.join(mat.blocks).mapValues(t => t._1 - t._2)
+          val result = blocks.join(mat.blocks).mapValues(t => t._1.subtract(t._2))
           new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
         }
     }
@@ -405,7 +402,7 @@ class BlockMatrix(
    * @return the result in BlockMatrix type
    */
   final def subtract(b: Double): BlockMatrix = {
-    val result = blocks.mapValues(t => (t - b).asInstanceOf[BDM[Double]])
+    val result = blocks.mapValues(t => t.subtract(b))
     new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
   }
 
@@ -416,11 +413,12 @@ class BlockMatrix(
    */
   final def subtractBy(b: Double): BlockMatrix = {
     val result = blocks.mapValues(t => {
-      val array = t.data
+      val array = t.denseBlock.data
       for (i <- 0 until array.length) {
         array(i) = b - array(i)
       }
-      BDM.create[Double](t.rows, t.cols, array)
+      // TODO support sparse format
+      new SubMatrix(denseMatrix = BDM.create[Double](t.rows, t.cols, array))
     })
     new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
   }
@@ -432,7 +430,7 @@ class BlockMatrix(
    * @return result in BlockMatrix type
    */
   final def divide(b: Double): BlockMatrix = {
-    val result = blocks.mapValues(t => (t / b).asInstanceOf[BDM[Double]])
+    val result = blocks.mapValues(t => t.divide(b))
     new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
   }
 
@@ -443,11 +441,12 @@ class BlockMatrix(
    */
   final def divideBy(b: Double): BlockMatrix = {
     val result = blocks.mapValues(t => {
-      val array = t.data
+      val array = t.denseBlock.data
       for (i <- 0 until array.length) {
         array(i) = b / array(i)
       }
-      BDM.create[Double](t.rows, t.cols, array)
+      // TODO support sparse format
+      new SubMatrix(denseMatrix =  BDM.create[Double](t.rows, t.cols, array))
     })
     new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
   }
@@ -458,7 +457,8 @@ class BlockMatrix(
    */
   def sum(): Double = {
     blocks.mapPartitions(iter => {
-      iter.map(t => t._2.data.sum)
+      // TODO support sparse format
+      iter.map(t => t._2.denseBlock.data.sum)
     }, true).reduce(_ + _)
   }
 
@@ -485,9 +485,10 @@ class BlockMatrix(
           val result = blocks.join(that.blocks).mapValues(t => {
             val rows = t._1.rows
             val cols = t._1.cols
-            val array = t._1.data.zip(t._2.data)
+            val array = t._1.denseBlock.data.zip(t._2.denseBlock.data)
               .map(x => x._1 * x._2)
-            new BDM(rows, cols, array)
+            // TODO support sparse format
+            new SubMatrix(denseMatrix = BDM.create[Double](rows, cols, array))
           })
           new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
         } else {
@@ -504,8 +505,9 @@ class BlockMatrix(
   final def transpose(): BlockMatrix = {
     val result = blocks.mapPartitions(iter => {
       iter.map(x => {
-        val mat: BDM[Double] = x._2.t.copy
-        (new BlockID(x._1.column, x._1.row), mat)
+        val mat: BDM[Double] = x._2.denseBlock.t.copy
+        // TODO support sparse format
+        (new BlockID(x._1.column, x._1.row), new SubMatrix(denseMatrix =  mat))
       })
     })
     new BlockMatrix(result, numCols(), numRows(), numBlksByCol(), numBlksByRow())
@@ -538,8 +540,9 @@ class BlockMatrix(
    */
   def saveToFileSystem(path: String, format: String = " ") {
     if (format.toLowerCase.equals("blockmatrix")) {
+      // TODO support sparse format
       blocks.map(t => (NullWritable.get(), new Text(t._1.row + "-" + t._1.column
-        + "-" + t._2.rows + "-" + t._2.cols + ":" + t._2.data.mkString(","))))
+        + "-" + t._2.rows + "-" + t._2.cols + ":" + t._2.denseBlock.data.mkString(","))))
         .saveAsHadoopFile[TextOutputFormat[NullWritable, Text]](path)
     } else {
       toDenseVecMatrix().saveToFileSystem(path)
@@ -567,8 +570,9 @@ class BlockMatrix(
     val result = blocks.flatMap { case (id, blk) =>
       val smRows = blk.rows
       val smCols = blk.cols
+      // TODO support sparse format
       Iterator.tabulate[(Long, (Int, BDV[Double]))](smRows)(i =>
-        ((id.row * mostBlockRowLen + i).toLong, (id.column, blk(i, ::).t)))
+        ((id.row * mostBlockRowLen + i).toLong, (id.column, blk.denseBlock(i, ::).t)))
     }.groupByKey().mapValues { iterable =>
       val iterator = iterable.iterator
       val vector = BDV.zeros[Double](numCols().toInt)
@@ -578,6 +582,15 @@ class BlockMatrix(
       vector
     }
     new DenseVecMatrix(result)
+  }
+
+  def toDenseBlocks: BlockMatrix = {
+    val result = blocks.mapValues{blk =>
+      val mat = new SubMatrix(denseMatrix = blk.sparseBlock.toDense)
+      blk.sparseBlock = null
+      mat
+    }
+    new BlockMatrix(result, numRows, numCols, numBlksByRow(), numBlksByCol())
   }
 
   /**
@@ -614,8 +627,9 @@ class BlockMatrix(
         var count = 0
         for ((rowId, (oldRow1, oldRow2), (newRow1, newRow2)) <- splitStatusByRow(row)) {
           for ((colId, (oldCol1, oldCol2), (newCol1, newCol2)) <- splitStatusByCol(col)) {
+            // TODO support sparse format
             array(count) = (BlockID(rowId, colId), (newRow1, newRow2, newCol1, newCol2,
-              blk(oldRow1 to oldRow2, oldCol1 to oldCol2).copy))
+              blk.denseBlock(oldRow1 to oldRow2, oldCol1 to oldCol2).copy))
             count += 1
           }
         }
@@ -633,7 +647,8 @@ class BlockMatrix(
           for ((rowStart, rowEnd, colStart, colEnd, blk) <- iterator) {
             mat(rowStart to rowEnd, colStart to colEnd) := blk
           }
-          (blkId, mat)
+          // TODO support sparse format
+          (blkId, new SubMatrix(denseMatrix = mat))
         }
       }
 
@@ -650,7 +665,8 @@ class BlockMatrix(
    */
   def elementMultiply(other: BlockMatrix, partitioner: Partitioner): BlockMatrix = {
     val result = blocks.join(other.getBlocks, partitioner).map{ case(blkId, (blk1, blk2)) =>
-        blk1 :*=  blk2
+        // TODO support sparse format
+        blk1.denseBlock :*=  blk2.denseBlock
       (blkId, blk1)
     }
     new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())

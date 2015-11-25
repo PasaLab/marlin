@@ -32,21 +32,22 @@ object LogisticRegression {
     val instances = args(2).toInt
     val features = args(3).toInt
     val input = MTUtils.randomDenVecMatrix(sc, instances, features)
-    val dataBlocks = input.toBlockMatrix(8 * cores, 1).blocks.partitionBy(matVecPartitioner).cache()
+    val splits = 8 * cores
+    val dataBlocks = input.toBlockMatrix(splits, 1).blocks.partitionBy(matVecPartitioner).cache()
     val data = new BlockMatrix(dataBlocks)
 //    data.blocks.partitionBy(matVecPartitioner).cache()
     val dataTranspose = input.toBlockMatrix(1, 8).transpose()
     dataTranspose.blocks.cache()
     println(s" all the data are generated!")
-    val labelVector = MTUtils.onesDistVector(sc,  instances, 8 * cores).vectors.partitionBy(matVecPartitioner).cache()
-    val labels = new DistributedVector(labelVector)
+    val labelVector = MTUtils.onesDistVector(sc, instances, splits).vectors.partitionBy(matVecPartitioner).cache()
+    val labels = new DistributedVector(labelVector, instances, splits)
 //    labels.vectors.partitionBy(matVecPartitioner).cache()
 
     var theta = BDV.ones[Double](features)
     for (i <- 1 to iterations) {
       println(s"in iteration $i")
       val q = data.multiply(theta).vectors.mapPartitions(vectors =>
-        vectors.map(v => (v._1, v._2.map(u => 1.0 / (1.0 + math.exp(-u))))))
+        vectors.map(v => (v._1, v._2.inner.map(u => 1.0 / (1.0 + math.exp(-u))))))
       val h = new DistributedVector(q)
 //      println(s"q first: ${q.first()._2(1 to 10).toArray.mkString(", ")}")
 //      val t = h.substract(labels).vectors.collect()

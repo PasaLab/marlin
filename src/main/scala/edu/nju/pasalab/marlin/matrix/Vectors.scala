@@ -40,6 +40,8 @@ trait Vector extends Serializable  with Writable {
 
   override def hashCode(): Int = Arrays.hashCode(this.toArray)
 
+//  def add(v: Vector): Vector
+
   /**
    * Converts the instance to a breeze vector.
    */
@@ -136,34 +138,36 @@ object Vectors {
   }
 }
 
-/**
- * new densevector directly extends from breeze.linalg.DenseVector
- * @param data
- */
-class NewDenseVector(data: Array[Double]) extends BDV(data) {
-  override def toString(): String = data.mkString(",")
-}
 
 /**
  * A dense vector represented by a value array.
  */
 class DenseVector extends Vector  {
-  var values: Array[Double] = null
+  var inner: BDV[Double] = null
+
+  val values: Array[Double] = inner.data
+
+  def this(v: BDV[Double]) {
+    this()
+    inner = v
+  }
 
   def this(array: Array[Double]) {
     this()
-    values = array
+    inner = new BDV[Double](array)
   }
 
-  override def size: Int = values.length
+  override def size: Int = inner.length
+
+  def length = size
 
   override def toString: String = values.mkString(",")
 
   override def toArray: Array[Double] = values
 
-  private[matrix]  def toBreeze: BV[Double] = new BDV[Double](values)
+  private[marlin]  def toBreeze: BV[Double] = inner
 
-  override def apply(i: Int) = values(i)
+  override def apply(i: Int) = inner(i)
 
   override def write(out: DataOutput) {
     out.writeInt(values.length)
@@ -174,9 +178,23 @@ class DenseVector extends Vector  {
 
   override def readFields(in: DataInput)  {
     val length = in.readInt()
-    values = Array.ofDim[Double](length)
+    inner = new BDV[Double](length)
     for (i <- 0 until length){
-      values(i) = in.readDouble()
+      inner(i) = in.readDouble()
+    }
+  }
+
+  def add(other: Vector): DenseVector = {
+    other.isInstanceOf[DenseVector] match {
+      case true => new DenseVector(this.inner + other.asInstanceOf[DenseVector].inner)
+      case _ => throw new IllegalArgumentException(s"Not supported add-operator between DenseVector and SparseVector")
+    }
+  }
+
+  def subtract(other: Vector): Vector = {
+    other.isInstanceOf[DenseVector] match {
+      case true => new DenseVector(this.inner - other.asInstanceOf[DenseVector].inner)
+      case _ => throw new IllegalArgumentException(s"Not supported add-operator between DenseVector and SparseVector")
     }
   }
 
@@ -207,6 +225,11 @@ class SparseVector extends Vector {
     this.indices = indices
     this.values = values
   }
+
+  def isEmpty: Boolean = {
+    length == 0
+  }
+
   override def toString: String = {
     "(" + size + "," + indices.zip(values).mkString("[", "," ,"]") + ")"
   }

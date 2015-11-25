@@ -5,7 +5,7 @@ import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV}
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 
-import edu.nju.pasalab.marlin.matrix.{DenseVector, BlockID}
+import edu.nju.pasalab.marlin.matrix.{SubMatrix, DenseVector, BlockID}
 import edu.nju.pasalab.marlin.utils.{OnesGenerator, ZerosGenerator, RandomDataGenerator}
 
 object RandomRDDs {
@@ -47,7 +47,7 @@ object RandomRDDs {
       generator: RandomDataGenerator[Double],
       length: Long,
       numSplits: Int,
-      seed: Long = System.nanoTime()): RDD[(Int, BDV[Double])] = {
+      seed: Long = System.nanoTime()): RDD[(Int, DenseVector)] = {
     new RandomDistVectorRDD(sc, length, numSplits, generator, seed)
   }
 
@@ -100,7 +100,7 @@ object RandomRDDs {
    * @param blksByRow Number of blocks in the RDD along the row side
    * @param blksByCol Number of blocks in the RDD along the column side
    * @param seed Random seed (default: a random long integer).
-   * @return RDD[(BlockID, BDM[Double])] with vectors containing i.i.d. samples produced by generator.
+   * @return RDD[(BlockID, SubMatrix)] with vectors containing i.i.d. samples produced by generator.
    */
   def randomBlockRDD(sc: SparkContext,
       generator: RandomDataGenerator[Double],
@@ -108,10 +108,11 @@ object RandomRDDs {
       numCols: Long,
       blksByRow: Int,
       blksByCol: Int,
-      seed: Long = System.nanoTime()): RDD[(BlockID, BDM[Double])] = {
+      sparseInfo: (Boolean, Double),
+      seed: Long = System.nanoTime()): RDD[(BlockID, SubMatrix)] = {
     //note: numPartitions must be divided by the numRows
     new RandomBlockRDD(
-      sc, numRows, numCols, blksByRow, blksByCol, generator, seed)
+      sc, numRows, numCols, blksByRow, blksByCol, generator, seed, sparseInfo)
   }
 
 

@@ -218,7 +218,7 @@ object NeuralNetwork extends Logging{
       val t0 = System.currentTimeMillis()
       val set = genRandomBlocks(executors, blkEachExecutor, selectedEachExecutor)
       /** Propagate through the network by mini-batch SGD **/
-      val inputData = data.filter{case(blkId, _) => set.contains(blkId.row)}.cache()
+      val inputData = data.filter{case(blkId, _) => set.contains(blkId.row)}.mapValues(t => t.denseBlock).cache()
       val hiddenLayerInput = inputData.mapPartitions(
         iter => iter.map{case(blkId, block) =>
           (blkId, (block * hiddenWeight).asInstanceOf[BDM[Double]])}

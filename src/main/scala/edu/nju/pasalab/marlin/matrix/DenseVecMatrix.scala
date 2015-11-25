@@ -120,18 +120,16 @@ class DenseVecMatrix(
           thisEmits.join(otherEmits).mapPartitions(iter =>
             iter.map { case (blkId, (block1, block2)) =>
               val c: BDM[Double] = block1.asInstanceOf[BDM[Double]] * block2.asInstanceOf[BDM[Double]]
-              (BlockID(blkId.row, blkId.column), c)
+              (BlockID(blkId.row, blkId.column), new SubMatrix(denseMatrix = c))
             }
           )
         } else {
           thisEmits.join(otherEmits).mapPartitions(iter =>
             iter.map { case (blkId, (block1, block2)) =>
               val c: BDM[Double] = block1.asInstanceOf[BDM[Double]] * block2.asInstanceOf[BDM[Double]]
-              (BlockID(blkId.row, blkId.column), c)
+              (BlockID(blkId.row, blkId.column), new SubMatrix(denseMatrix = c))
             }
-          ).reduceByKey((a, b) => {
-            a + b
-          })
+          ).reduceByKey((a, b) => a.add(b))
         }
         new BlockMatrix(result, numRows(), that.numCols(), m, n)
 
@@ -308,7 +306,7 @@ class DenseVecMatrix(
           pArray(i) = pArray(lu._2(i) - 1)
           pArray(lu._2(i) - 1) = tmp
         }
-        val blk = rows.context.parallelize(Seq((BlockID(0, 0), lu._1)), 1)
+        val blk = rows.context.parallelize(Seq((BlockID(0, 0), new SubMatrix(denseMatrix = lu._1))), 1)
         (new BlockMatrix(blk, lu._1.rows, lu._1.cols, 1, 1), pArray)
 
       case LUmode.DistSpark =>
@@ -323,12 +321,12 @@ class DenseVecMatrix(
         blkMat.cache()
         println("numBlkByRow is: " + numBlksByRow)
         println("original partitioner: " + partitioner.toString())
-        val scatterRdds = Array.ofDim[RDD[(BlockID, BDM[Double])]](numBlksByRow - 1, 3)
+        val scatterRdds = Array.ofDim[RDD[(BlockID, SubMatrix)]](numBlksByRow - 1, 3)
 
         for (i <- 0 until numBlksByRow) {
           val matFirst = blkMat.filter(block => block._1.row == i && block._1.column == i)
           if (i == numBlksByRow - 1) {
-            val (lu, p) = brzLU(matFirst.collect().head._2)
+            val (lu, p) = brzLU(matFirst.collect().head._2.denseBlock)
             val perm = (0 until p.length).toArray
             for (i <- 0 until perm.length) {
               val tmp = perm(i)
@@ -338,13 +336,13 @@ class DenseVecMatrix(
             for (j <- 0 until perm.length) {
               pArray(i * subMatrixBase + j) = i * subMatrixBase + perm(j)
             }
-            blkMat = matFirst.mapValues(block => lu)
+            blkMat = matFirst.mapValues(block => new SubMatrix(denseMatrix = lu))
           } else {
             val matSecond = blkMat.filter(block => block._1.row == i && block._1.column > i)
             val matThird = blkMat.filter(block => block._1.row > i && block._1.column == i)
             val matForth = blkMat.filter(block => block._1.column > i && block._1.row > i)
 
-            val bdata = rows.context.broadcast(matFirst.collect().head._2)
+            val bdata = rows.context.broadcast(matFirst.collect().head._2.denseBlock)
 
             logInfo(s"LU iteration: $i")
             val t0 = System.currentTimeMillis()
@@ -377,15 +375,15 @@ class DenseVecMatrix(
                 permutation.update(j, p(j), 1.0)
               }
               val t0 = System.currentTimeMillis()
-              val tmp = (l \ permutation) * block
+              val tmp: BDM[Double] = (l \ permutation) * block.denseBlock
               logInfo(s"in iteration $i, computation for A2 takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
-              tmp
+              new SubMatrix(denseMatrix = tmp)
             }).cache()
             scatterRdds(i)(2) = matThird.mapValues(block => {
               val t0 = System.currentTimeMillis()
-              val tmp = block * brzInv(blup.value._2)
+              val tmp: BDM[Double] = block.denseBlock * brzInv(blup.value._2)
               logInfo(s"in iteration $i, computation for A3 takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
-              tmp
+              new SubMatrix(denseMatrix = tmp)
             }).cache()
 
             val nSplitNum, mSplitNum = numBlksByRow - (i + 1)
@@ -399,7 +397,7 @@ class DenseVecMatrix(
                     for (j <- 0 until nSplitNum) {
                       //val seq = t._1.row * nSplitNum * kSplitNum + (j+i+1) * kSplitNum + t._1.column
                       val seq = 0
-                      array(j) = (BlockID(blkId.row, (j + i + 1), seq), blk)
+                      array(j) = (BlockID(blkId.row, (j + i + 1), seq), blk.denseBlock)
                     }
                     array
                   }
@@ -412,7 +410,7 @@ class DenseVecMatrix(
                     val array = Array.ofDim[(BlockID, BDM[Double])](mSplitNum)
                     for (j <- 0 until mSplitNum) {
                       val seq = 0
-                      array(j) = (BlockID(j + i + 1, blkId.column, seq), blk)
+                      array(j) = (BlockID(j + i + 1, blkId.column, seq), blk.denseBlock)
                     }
                     array
                   }
@@ -421,14 +419,12 @@ class DenseVecMatrix(
               + (matSecondEmit.partitioner == matThirdEmit.partitioner).toString)
 
             val mult = matThirdEmit.join(matSecondEmit, partitioner)
-              .mapValues { case (blk1, blk2) => {
-                val mat = (blk1.asInstanceOf[BDM[Double]] * (bdata.value \ blk2.asInstanceOf[BDM[Double]]))
-                  .asInstanceOf[BDM[Double]]
-                mat
-              }
+              .mapValues { case (blk1, blk2) =>
+               new SubMatrix(denseMatrix = (blk1.asInstanceOf[BDM[Double]] * (bdata.value \ blk2.asInstanceOf[BDM[Double]]))
+                 .asInstanceOf[BDM[Double]])
               } //.partitionBy(partitioner)
             blkMat = matForth
-              .join(mult, partitioner).mapValues(t => t._1 - t._2) //.partitionBy(partitioner).cache()
+              .join(mult, partitioner).mapValues{case(a,b) => a.subtract(b)} //.partitionBy(partitioner).cache()
               .cache()
           }
         }
@@ -456,7 +452,7 @@ class DenseVecMatrix(
               for (j <- 0 until array.length) {
                 permutation.update(j, array(j) - subMatrixBase * blkId.row, 1.0)
               }
-              (blkId, permutation * blk)
+              (blkId, new SubMatrix(denseMatrix =permutation).multiply(blk))
             } else {
               (blkId, blk)
             }
@@ -497,7 +493,7 @@ class DenseVecMatrix(
       case LUmode.LocalBreeze =>
         val brz = toBreeze()
         val l = brzCholesky(brz)
-        val blk = rows.context.parallelize(Seq((BlockID(0, 0), l)), 1)
+        val blk = rows.context.parallelize(Seq((BlockID(0, 0), new SubMatrix(denseMatrix = l))), 1)
         new BlockMatrix(blk, l.rows, l.cols, 1, 1)
       case LUmode.DistSpark =>
         val subMatrixBaseSize = rows.context.getConf.getInt("marlin.cholesky.basesize", 1000)
@@ -510,26 +506,27 @@ class DenseVecMatrix(
 
         println("numBlkByRow is: " + numBlksByRow)
         println("original partitioner: " + partitioner.toString)
-        val scatterRdds = Array.ofDim[RDD[(BlockID, BDM[Double])]](numBlksByRow - 1, 2)
+        val scatterRdds = Array.ofDim[RDD[(BlockID, SubMatrix)]](numBlksByRow - 1, 2)
 
         for (i <- 0 until numBlksByRow) {
           if (i == numBlksByRow - 1) {
-            blkMat = blkMat.mapValues(block => brzCholesky(block))
+            blkMat = blkMat.mapValues(block => new SubMatrix(denseMatrix = brzCholesky(block.denseBlock)))
           } else {
             logInfo(s"LU iteration: $i")
             val blksFirst = blkMat.filter(block => block._1.row == i && block._1.column == i)
             val blksThird = blkMat.filter(block => block._1.row > i && block._1.column == i)
             val blksForth = blkMat.filter(block => block._1.column > i && block._1.row >= block._1.column)
 
-            val mat = blksFirst.collect().head._2
+            val mat = blksFirst.collect().head._2.denseBlock
             for (j <- 0 until mat.rows)
               for (k <- 0 until j)
                 mat(j, k) = mat(k, j)
 
             val l = brzCholesky(mat)
             val bltinverse = rows.context.broadcast(brzInv(l.t))
-            scatterRdds(i)(0) = blksFirst.mapValues(block => l).cache()
-            scatterRdds(i)(1) = blksThird.mapValues(block => block * bltinverse.value).cache()
+            scatterRdds(i)(0) = blksFirst.mapValues(block =>  new SubMatrix(denseMatrix = l)).cache()
+            scatterRdds(i)(1) = blksThird.mapValues(block =>
+              block.multiply(bltinverse.value)).cache()
 
             val nSplitNum = numBlksByRow - (i + 1)
             val mult = scatterRdds(i)(1)
@@ -539,16 +536,17 @@ class DenseVecMatrix(
                     val array = Array.ofDim[(BlockID, BDM[Double])](nSplitNum + 1)
                     for (j <- 0 until array.length) {
                       if (j < blkId.row - i) {
-                        array(j) = (BlockID(blkId.row, j + i + 1, 0), blk)
+                        array(j) = (BlockID(blkId.row, j + i + 1, 0), blk.denseBlock)
                       } else {
-                        array(j) = (BlockID(i + j, blkId.row, 0), blk.t)
+                        array(j) = (BlockID(i + j, blkId.row, 0), blk.denseBlock.t)
                       }
                     }
                     array
                   }
               }).reduceByKey(partitioner, (a, b) => if (a.isTranspose) b * a else a * b)
 
-            blkMat = blksForth.join(mult, partitioner).mapValues(t => t._1 - t._2).cache()
+            blkMat = blksForth.join(mult, partitioner).mapValues{case(a, b) =>
+              a.subtract(new SubMatrix(denseMatrix = b))}.cache()
           }
         }
         for (i <- 0 until numBlksByRow - 1) {
@@ -587,7 +585,7 @@ class DenseVecMatrix(
       case LUmode.LocalBreeze =>
         val mat = toBreeze()
         val inverse = brzInv(mat)
-        val blk = rows.context.parallelize(Seq((BlockID(0, 0), inverse)), 1)
+        val blk = rows.context.parallelize(Seq((BlockID(0, 0), new SubMatrix(denseMatrix =inverse))), 1)
         new BlockMatrix(blk, inverse.rows, inverse.cols, 1, 1)
       case LUmode.DistSpark =>
         val subMatrixBaseSize = rows.context.getConf.getInt("marlin.inverse.basesize", 1000)
@@ -601,11 +599,11 @@ class DenseVecMatrix(
         blkMat.cache()
         println("numBlkByRow is: " + numBlksByRow)
         println("original partitioner: " + partitioner.toString())
-        val scatterRdds = Array.ofDim[RDD[(BlockID, BDM[Double])]](numBlksByRow - 1, 3)
+        val scatterRdds = Array.ofDim[RDD[(BlockID, SubMatrix)]](numBlksByRow - 1, 3)
 
         for (i <- 0 until numBlksByRow) {
           if (i == numBlksByRow - 1) {
-            blkMat = blkMat.mapValues(block => brzInv(block))
+            blkMat = blkMat.mapValues(block => new SubMatrix(denseMatrix = brzInv(block.denseBlock)))
           } else {
             val matFirst = blkMat.filter(block => block._1.row == i && block._1.column == i)
             val matSecond = blkMat.filter(block => block._1.row == i && block._1.column > i)
@@ -616,22 +614,22 @@ class DenseVecMatrix(
 
             logInfo(s"Inverse iteration: $i")
             val t0 = System.currentTimeMillis()
-            val inverse = brzInv(mat)
+            val inverse = brzInv(mat.denseBlock)
             logInfo(s"in iteration $i, in master inverse takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
             val binv = rows.context.broadcast(inverse)
 
-            scatterRdds(i)(0) = matFirst.mapValues(block => binv.value).cache()
+            scatterRdds(i)(0) = matFirst.mapValues(block => new SubMatrix(denseMatrix = binv.value)).cache()
             scatterRdds(i)(1) = matSecond.mapValues(block => {
               val t0 = System.currentTimeMillis()
-              val tmp = -binv.value * block
+              val tmp: BDM[Double] = -binv.value * block.denseBlock
               logInfo(s"in iteration $i, computation for A2 takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
-              tmp
+              new SubMatrix(denseMatrix = tmp)
             }).cache()
             scatterRdds(i)(2) = matThird.mapValues(block => {
               val t0 = System.currentTimeMillis()
-              val tmp = -block * binv.value
+              val tmp: BDM[Double] = -block.denseBlock * binv.value
               logInfo(s"in iteration $i, computation for A3 takes ${(System.currentTimeMillis() - t0) / 1000} seconds")
-              tmp
+              new SubMatrix(denseMatrix = tmp)
             }).cache()
 
             val nSplitNum, mSplitNum = numBlksByRow - (i + 1)
@@ -641,7 +639,7 @@ class DenseVecMatrix(
               .mapPartitions({
                 iter =>
                   iter.flatMap(t => {
-                    val array = Array.ofDim[(BlockID, BDM[Double])](nSplitNum)
+                    val array = Array.ofDim[(BlockID, SubMatrix)](nSplitNum)
                     for (j <- 0 until nSplitNum) {
                       val seq = 0
                       array(j) = (BlockID(t._1.row, (j + i + 1), seq), t._2)
@@ -654,7 +652,7 @@ class DenseVecMatrix(
               .mapPartitions({
                 iter =>
                   iter.flatMap{case(blkId, blk) =>
-                    val array = Array.ofDim[(BlockID, BDM[Double])](mSplitNum)
+                    val array = Array.ofDim[(BlockID, SubMatrix)](mSplitNum)
                     for (j <- 0 until mSplitNum) {
                       val seq = 0
                       array(j) = (BlockID(j + i + 1, blkId.column, seq), blk)
@@ -667,12 +665,10 @@ class DenseVecMatrix(
 
             val mult = matThirdEmit.join(matSecondEmit, partitioner)
               .mapValues{case(blk1, blk2) =>
-                val mat = (blk1.asInstanceOf[BDM[Double]] * binv.value * blk2.asInstanceOf[BDM[Double]])
-                  .asInstanceOf[BDM[Double]]
-                mat
+                (blk1.multiply(binv.value)).multiply(blk2)
               } //.partitionBy(partitioner)
             blkMat = matForth
-              .join(mult, partitioner).mapValues(t => t._1 - t._2) //.partitionBy(partitioner).cache()
+              .join(mult, partitioner).mapValues(t => t._1.subtract(t._2)) //.partitionBy(partitioner).cache()
               .cache()
             //println(blkMat.toDebugString)
           }
@@ -689,7 +685,7 @@ class DenseVecMatrix(
           val FourthEmit = blkMat.mapPartitions({
             iter =>
               iter.flatMap { case (blkId, blk) =>
-                val array = Array.ofDim[(BlockID, BDM[Double])](n)
+                val array = Array.ofDim[(BlockID, SubMatrix)](n)
                 for (j <- 0 until array.length) {
                   val seq = blkId.row * numBlksByRow * numBlksByCol + (i + j) * numBlksByCol + blkId.column
                   array(j) = (BlockID(blkId.row, i + j, seq), blk)
@@ -701,7 +697,7 @@ class DenseVecMatrix(
           val ThirdEmit = thirdMat.mapPartitions({
             iter =>
               iter.flatMap { case (blkId, blk) =>
-                val array = Array.ofDim[(BlockID, BDM[Double])](m)
+                val array = Array.ofDim[(BlockID, SubMatrix)](m)
                 for (j <- 0 until array.length) {
                   val seq = (i + 1 + j) * numBlksByRow * numBlksByCol + blkId.column * numBlksByCol + blkId.row
                   array(j) = (BlockID((i + j + 1), blkId.column, seq), blk)
@@ -712,10 +708,9 @@ class DenseVecMatrix(
 
           val multThird = FourthEmit.join(ThirdEmit)
             .map { case (blkId, (blk1, blk2)) =>
-              val mat = (blk1.asInstanceOf[BDM[Double]] * blk2.asInstanceOf[BDM[Double]])
-                .asInstanceOf[BDM[Double]]
+              val mat = blk1.multiply(blk2)
               (BlockID(blkId.row, blkId.column), mat)
-            }.reduceByKey(_ + _) //.partitionBy(partitioner)
+            }.reduceByKey((a, b) => a.add(b)) //.partitionBy(partitioner)
           multThird.count()
 
           m = 1
@@ -723,7 +718,7 @@ class DenseVecMatrix(
           k = n
           val SecondEmit = secondMat.mapPartitions(iter =>
             iter.flatMap { case (blkId, blk) =>
-              val array = Array.ofDim[(BlockID, BDM[Double])](n)
+              val array = Array.ofDim[(BlockID, SubMatrix)](n)
               for (j <- 0 until array.length) {
                 val seq = blkId.row * k * n + (i + j + 1) * k + blkId.column
                 array(j) = (BlockID(blkId.row, i + j + 1, seq), blk)
@@ -733,7 +728,7 @@ class DenseVecMatrix(
 
           val FourthEmit2 = blkMat.mapPartitions(iter =>
             iter.flatMap { case (blkId, blk) =>
-              val array = Array.ofDim[(BlockID, BDM[Double])](m)
+              val array = Array.ofDim[(BlockID, SubMatrix)](m)
               for (j <- 0 until array.length) {
                 val seq = (i + j) * k * n + blkId.column * k + blkId.row
                 array(j) = (BlockID(i + j, blkId.column, seq), blk)
@@ -743,24 +738,22 @@ class DenseVecMatrix(
 
           val multSecond = SecondEmit.join(FourthEmit2)
             .map { case (blkId, (blk1, blk2)) =>
-              val mat = (blk1.asInstanceOf[BDM[Double]] * blk2.asInstanceOf[BDM[Double]])
-                .asInstanceOf[BDM[Double]]
+              val mat = (blk1.multiply(blk2))
               (BlockID(blkId.row, blkId.column), mat)
-            }.reduceByKey(_ + _) //.partitionBy(partitioner)
+            }.reduceByKey((a, b) => a.add(b)) //.partitionBy(partitioner)
 
           val multFirst = scatterRdds(i)(1)
-            .map { case (blkId, blk) => (BlockID(blkId.column, blkId.row), blk) }
+            .map { case(blkId, blk) => (BlockID(blkId.column, blkId.row), blk) }
             .join(multThird)
             .mapPartitions(iter =>
-              iter.map { case (blkId, (blk1, blk2)) =>
-                val mat = (blk1.asInstanceOf[BDM[Double]] * blk2.asInstanceOf[BDM[Double]])
-                  .asInstanceOf[BDM[Double]]
+              iter.map { case(blkId, (blk1, blk2)) =>
+                val mat = (blk1.multiply(blk2))
                 (BlockID(i, i), mat)
               })
-            .reduceByKey(_ + _)
+            .reduceByKey((a, b) => a.add(b))
             .join(scatterRdds(i)(0))
-            .mapValues(t => t._1 + t._2)
-            .reduceByKey(_ + _)
+            .mapValues{case(m1, m2) => m1.add(m2)}
+            .reduceByKey((a, b) => a.add(b))
 
           blkMat = blkMat.union(multSecond).union(multThird).union(multFirst)
             .partitionBy(partitioner).cache()
@@ -1257,7 +1250,7 @@ class DenseVecMatrix(
         for ((rowStart, rowEnd, blk) <- iterator) {
           mat(rowStart to rowEnd, ::) := blk
         }
-        (blkId, mat)
+        (blkId, new SubMatrix(denseMatrix = mat))
       }
     }
     new BlockMatrix(blocks, numRows(), numCols(), blksByRow, 1)
@@ -1287,7 +1280,7 @@ class DenseVecMatrix(
             val (index, vec) = iterator.next()
             mat(index.toInt - blockRow * mBlockRowSize, ::) := vec.t
           }
-          (BlockID(blockRow, 0), mat)
+          (BlockID(blockRow, 0), new SubMatrix(denseMatrix = mat))
         }
       })
       new BlockMatrix(result, numRows(), numCols(), blksByRow, blksByCol)
@@ -1328,7 +1321,7 @@ class DenseVecMatrix(
               val (index, vector) = iterator.next()
               mat((index - rowBase).toInt, ::) := vector.t
             }
-            (blkId, mat)
+            (blkId, new SubMatrix(denseMatrix = mat))
           }, true)
       new BlockMatrix(result, numRows(), numCols(), blksByRow, blksByCol)
     }
@@ -1380,7 +1373,7 @@ class DenseVecMatrix(
       for ((i, j, v) <- entry) {
         matrix(i.toInt, j) = v
       }
-      (blkId, matrix)
+      (blkId, new SubMatrix(denseMatrix =matrix))
     }
     new BlockMatrix(blocks, numRows(), numCols(), newBlksByRow, newBlksByCol)
   }
