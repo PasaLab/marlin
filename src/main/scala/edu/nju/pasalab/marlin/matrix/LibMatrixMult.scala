@@ -29,7 +29,7 @@ object LibMatrixMult {
           System.arraycopy(denseMat.data, bix(0) * m, c, cix, m)
         } else {
           for(k <- 0 until bix.size){
-            for(j <- 0 until n)
+            for(j <- 0 until m)
             c(cix + j) += bvals(k) * denseMat.data( bix(k) * m + j)
           }
         }

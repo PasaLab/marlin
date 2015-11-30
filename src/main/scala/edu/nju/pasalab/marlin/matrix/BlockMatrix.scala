@@ -450,6 +450,15 @@ class BlockMatrix(private[marlin] val blocks: RDD[(BlockID, SubMatrix)], private
     })
     new BlockMatrix(result, numRows(), numCols(), numBlksByRow(), numBlksByCol())
   }
+//
+//  def multiplySparse(other: BlockMatrix): CoordinateMatrix = {
+//    blocks.flatMap{case(id, mat) =>
+//        val arr = new ArrayBuffer[(Long, (Long, Float))]
+//        for(sv <- mat.sparseBlock.values){
+//
+//        }
+//    }
+//  }
 
   /**
    * Sum all the elements in matrix ,note the Double.MaxValue is 1.7976931348623157E308
