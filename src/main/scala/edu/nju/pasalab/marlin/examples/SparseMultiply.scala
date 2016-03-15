@@ -16,6 +16,8 @@ object SparseMultiply {
       println("mode 2: SparseVecMatrix multiply SparseVecMatrix with sparse to dense vector")
       println("mode 3: BlockMatrix multiply BlockMatrix with sparse format")
       println("mode 4: BlockMatrix multiply BlockMatrix with dense format")
+      println("mode 5: Dense BlockMatrix multiply Sparse BlockMatrix with dense-sparse format")
+      println("mode 6: Dense BlockMatrix multiply Sparse BlockMatrix with dense-dense format")
       System.exit(1)
     }
     val rowA = args(0).toInt
@@ -60,6 +62,22 @@ object SparseMultiply {
         val result = matA.multiply(matB)
         println(s"result blocks count: ${result.getBlocks.count()}")
         println(s"BlockMatrix-BlockMatrix multiply with dense format used time: ${System.currentTimeMillis() - t0} " +
+          s";${Calendar.getInstance().getTime}")
+      case 5 =>
+        val matA = MTUtils.randomBlockMatrix(sc, rowA, colA, 6, 6)
+        val matB = MTUtils.randomBlockMatrix(sc, rowB, colB, 6, 6, (true, density))
+        val t0 = System.currentTimeMillis()
+        val result = matA.multiply(matB)
+        println(s"result blocks count: ${result.getBlocks.count()}")
+        println(s"Dense BlockMatrix multiply Sparse BlockMatrix with dense-sparse format used time: ${System.currentTimeMillis() - t0} " +
+          s";${Calendar.getInstance().getTime}")
+      case 6 =>
+        val matA = MTUtils.randomBlockMatrix(sc, rowA, colA, 6, 6)
+        val matB = MTUtils.randomBlockMatrix(sc, rowB, colB, 6, 6, (true, density)).toDenseBlocks
+        val t0 = System.currentTimeMillis()
+        val result = matA.multiply(matB)
+        println(s"result blocks count: ${result.getBlocks.count()}")
+        println(s"Dense BlockMatrix multiply Sparse BlockMatrix with dense-dense format used time: ${System.currentTimeMillis() - t0} " +
           s";${Calendar.getInstance().getTime}")
     }
     sc.stop()

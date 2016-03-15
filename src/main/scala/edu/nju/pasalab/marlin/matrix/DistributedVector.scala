@@ -66,7 +66,7 @@ class DistributedVector(private [marlin] val vectors: RDD[(Int, DenseVector)],
     val result = BDV.zeros[Double](length.toInt)
     val offset = length.toInt / vecs.length
     for((id, v) <- vecs){
-      result.slice(id * offset, id * offset + v.length) := v.inner
+      result.slice(id * offset, id * offset + v.length) := v.inner.get
     }
     result
   }
@@ -88,7 +88,7 @@ class DistributedVector(private [marlin] val vectors: RDD[(Int, DenseVector)],
       var count = 0
       val vector = iter.next()._2
       for ((vecId, (oldStart, oldEnd), (newStart, newEnd)) <- splitStatusByRow(id)) {
-        array(count) = (vecId, (newStart, newEnd, vector.inner(oldStart to oldEnd)))
+        array(count) = (vecId, (newStart, newEnd, vector.inner.get(oldStart to oldEnd)))
         count += 1
       }
       array.toIterator
@@ -136,8 +136,8 @@ class DistributedVector(private [marlin] val vectors: RDD[(Int, DenseVector)],
   }
 
   /**
-   * multiply two distributed vector, if the left vector is a column-vector, and the right vector is a row-vector, then 
-   * get a BlockMatrix result; if the left vector is row-vector and the right vector is a column-vector, then get 
+   * multiply two distributed vector, if the left vector is a column-vector, and the right vector is a row-vector, then
+   * get a BlockMatrix result; if the left vector is row-vector and the right vector is a column-vector, then get
    * a double variable.
    * @param other
    * @param mode "dist" mode means multiply two vector in distributed environment, while the "local" mode means get the
@@ -154,7 +154,7 @@ class DistributedVector(private [marlin] val vectors: RDD[(Int, DenseVector)],
           case(id, v) => Iterator.tabulate(splitNum)(i => (new BlockID(i, id), v))}
         val blocks = thisVecEmits.join(otherVecEmits).map{
           // TODO support sparse format
-          case(blkId, (v1, v2)) => (blkId, new SubMatrix(denseMatrix = v1.inner * v2.inner.t))}
+          case(blkId, (v1, v2)) => (blkId, new SubMatrix(denseMatrix = v1.inner.get * v2.inner.get.t))}
         val result = new BlockMatrix(blocks, length, length, splitNum, splitNum)
         Right(result)
       }else {
@@ -164,7 +164,7 @@ class DistributedVector(private [marlin] val vectors: RDD[(Int, DenseVector)],
       val result: Double = if (mode.toLowerCase().equals("dist")) {
         vectors.join(other.getVectors).map { case (id, (v1, v2)) =>
           // TODO support sparse format
-          v1.inner.t * v2.inner
+          v1.inner.get.t * v2.inner.get
         }.reduce(_ + _)
       }else if (mode.toLowerCase().equals("local")){
         val v1 = toBreeze().t

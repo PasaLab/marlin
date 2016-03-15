@@ -52,7 +52,7 @@ object PageRank {
       for ( j <- 0 until numBlocks) {
         val start: Int = j * splitLen
         val end: Int =  math.min((j + 1) * splitLen - 1, vectorLength - 1)
-        arrayBuffer.+=((j, result.inner(start to end)))
+        arrayBuffer.+=((j, result.inner.get(start to end)))
       }
        ranks = new DistributedVector(sc.parallelize(arrayBuffer, numBlocks))
     }

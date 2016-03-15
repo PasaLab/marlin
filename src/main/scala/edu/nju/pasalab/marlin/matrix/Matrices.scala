@@ -51,7 +51,7 @@ class DenseMatrix(val numRows: Int, val numCols: Int, val values: Array[Double])
 
   def toArray: Array[Double] = values
 
-  private[matrix] override def toBreeze: BM[Double] = new BDM[Double](numRows, numCols, values) 
+  private[matrix] override def toBreeze: BM[Double] = new BDM[Double](numRows, numCols, values)
 }
 
 class SparseMatrix(val numRows: Int, val numCols: Int, val values: Array[SparseVector]) extends Matrix {
@@ -77,11 +77,11 @@ class SparseMatrix(val numRows: Int, val numCols: Int, val values: Array[SparseV
       val r = Array.ofDim[Int](nonZeros.toInt)
       for (sv <- values){
         colPtrs(c) = start
-        for(i <- 0 until sv.indices.size){
-          r(i + start) = sv.indices(i)
-          d(i + start) = sv.values(i)
+        for(i <- 0 until sv.indices.get.size){
+          r(i + start) = sv.indices.get(i)
+          d(i + start) = sv.values.get(i)
         }
-        start += sv.indices.size
+        start += sv.indices.get.size
         c += 1
       }
       (d, r)
@@ -90,9 +90,9 @@ class SparseMatrix(val numRows: Int, val numCols: Int, val values: Array[SparseV
       val r = new ArrayBuffer[Int]()
       for(sv <- values){
         colPtrs(c) = start
-        d ++= sv.values
-        r ++= sv.indices
-        start += sv.indices.size
+        d ++= sv.values.get
+        r ++= sv.indices.get
+        start += sv.indices.get.size
         c += 1
       }
       (d.toArray, r.toArray)
@@ -107,8 +107,8 @@ class SparseMatrix(val numRows: Int, val numCols: Int, val values: Array[SparseV
     val c = Array.ofDim[Double](numRows * numCols)
     for(i <- 0 until numCols){
       if(values(i) != null && !values(i).isEmpty){
-        val indices = values(i).indices
-        val vals = values(i).values
+        val indices = values(i).indices.get
+        val vals = values(i).values.get
         val offset = i * numRows
         for(k <- 0 until indices.size){
           c( offset + indices(k)) = vals(k)
@@ -131,16 +131,16 @@ class SparseMatrix(val numRows: Int, val numCols: Int, val values: Array[SparseV
     var i , cix = 0
     while (i < other.numCols){
       val bcol = other.values(i)
-      if(bcol != null && bcol.indices.size != 0) {
-        val bix = bcol.indices
-        val bvals = bcol.values
+      if(bcol != null && bcol.indices.get.size != 0) {
+        val bix = bcol.indices.get
+        val bvals = bcol.values.get
         for (k <- 0 until bix.size) {
-          if (values(bix(k)) != null && values(bix(k)).indices.size != 0) {
+          if (values(bix(k)) != null && values(bix(k)).indices.get.size != 0) {
             val bval = bvals(k)
             val acol = values(bix(k))
-            val alen = acol.indices.size
-            val aix = acol.indices
-            val avals = acol.values
+            val alen = acol.indices.get.size
+            val aix = acol.indices.get
+            val avals = acol.values.get
             vectMultiplyAdd(bval, avals, c, aix, cix, alen)
           }
         }

@@ -143,57 +143,59 @@ object Vectors {
  * A dense vector represented by a value array.
  */
 class DenseVector extends Vector  {
-  var inner: BDV[Double] = null
+  var inner: Option[BDV[Double]] = None
 
-  val values: Array[Double] = inner.data
+  var values: Option[Array[Double]] = None
 
   def this(v: BDV[Double]) {
     this()
-    inner = v
+    inner = Some(v)
+    values = Some(inner.get.data)
   }
 
   def this(array: Array[Double]) {
     this()
-    inner = new BDV[Double](array)
+    inner = Some(new BDV[Double](array))
+    values = Some(inner.get.data)
   }
 
-  override def size: Int = inner.length
+  override def size: Int = inner.get.length
 
   def length = size
 
   override def toString: String = values.mkString(",")
 
-  override def toArray: Array[Double] = values
+  override def toArray: Array[Double] = values.get
 
-  private[marlin]  def toBreeze: BV[Double] = inner
+  private[marlin]  def toBreeze: BV[Double] = inner.get
 
-  override def apply(i: Int) = inner(i)
+  override def apply(i: Int) = inner.get(i)
 
   override def write(out: DataOutput) {
-    out.writeInt(values.length)
-    for (v <- values){
+    out.writeInt(values.get.length)
+    for (v <- values.get){
       out.writeDouble(v)
     }
   }
 
   override def readFields(in: DataInput)  {
     val length = in.readInt()
-    inner = new BDV[Double](length)
+    inner = Some(new BDV[Double](length))
     for (i <- 0 until length){
-      inner(i) = in.readDouble()
+      inner.get(i) = in.readDouble()
     }
   }
 
   def add(other: Vector): DenseVector = {
     other.isInstanceOf[DenseVector] match {
-      case true => new DenseVector(this.inner + other.asInstanceOf[DenseVector].inner)
+      case true => new DenseVector(this.inner.get + other.asInstanceOf[DenseVector].inner.get)
       case _ => throw new IllegalArgumentException(s"Not supported add-operator between DenseVector and SparseVector")
     }
   }
 
   def subtract(other: Vector): Vector = {
     other.isInstanceOf[DenseVector] match {
-      case true => new DenseVector(this.inner - other.asInstanceOf[DenseVector].inner)
+      case true => new DenseVector(this.inner.get - other.asInstanceOf[DenseVector].inner.get)
       case _ => throw new IllegalArgumentException(s"Not supported add-operator between DenseVector and SparseVector")
     }
   }
@@ -214,16 +216,16 @@ class DenseVector extends Vector  {
  */
 class SparseVector extends Vector {
   var length = 0
-  var indices: Array[Int] = null
-  var values: Array[Double] = null
+  var indices: Option[Array[Int]] = None
+  var values: Option[Array[Double]] = None
 
   override def size: Int = length
 
   def this(size: Int, indices: Array[Int], values: Array[Double]) {
     this()
     length = size
-    this.indices = indices
-    this.values = values
+    this.indices = Some(indices)
+    this.values = Some(values)
   }
 
   def isEmpty: Boolean = {
@@ -237,24 +239,24 @@ class SparseVector extends Vector {
   override def toArray: Array[Double] = {
     val data = new Array[Double](size)
     var i = 0
-    val nnz = indices.length
+    val nnz = indices.get.length
     while (i < nnz) {
-      data(indices(i)) = values(i)
+      data(indices.get(i)) = values.get(i)
       i += 1
     }
     data
   }
 
-  private[matrix]  def toBreeze: BV[Double] = new BSV[Double](indices, values, size)
+  private[matrix]  def toBreeze: BV[Double] = new BSV[Double](indices.get, values.get, size)
 
   override def write(out: DataOutput) {
     out.writeInt(length)
-    out.writeInt(indices.length)
-    out.writeInt(values.length)
-    for ( i <- indices){
+    out.writeInt(indices.get.length)
+    out.writeInt(values.get.length)
+    for ( i <- indices.get){
       out.writeInt(i)
     }
-    for ( v <- values) {
+    for ( v <- values.get) {
       out.writeDouble(v)
     }
   }
@@ -263,16 +265,15 @@ class SparseVector extends Vector {
     length = in.readInt()
     val indexLen = in.readInt()
     val valLen = in.readInt()
-    indices = Array.ofDim[Int](indexLen)
-    values = Array.ofDim[Double](valLen)
+    indices = Some(Array.ofDim[Int](indexLen))
+    values = Some(Array.ofDim[Double](valLen))
 
     for (i <- 0 until indexLen){
-      indices(i) = in.readInt()
+      indices.get(i) = in.readInt()
     }
 
     for (i <- 0 until valLen){
-      values(i) = in.readDouble()
+      values.get(i) = in.readDouble()
     }
   }
 }
-

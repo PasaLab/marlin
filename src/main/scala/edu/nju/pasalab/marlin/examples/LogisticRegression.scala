@@ -47,7 +47,7 @@ object LogisticRegression {
     for (i <- 1 to iterations) {
       println(s"in iteration $i")
       val q = data.multiply(theta).vectors.mapPartitions(vectors =>
-        vectors.map(v => (v._1, v._2.inner.map(u => 1.0 / (1.0 + math.exp(-u))))))
+        vectors.map(v => (v._1, v._2.inner.get.map(u => 1.0 / (1.0 + math.exp(-u))))))
       val h = new DistributedVector(q)
 //      println(s"q first: ${q.first()._2(1 to 10).toArray.mkString(", ")}")
 //      val t = h.substract(labels).vectors.collect()

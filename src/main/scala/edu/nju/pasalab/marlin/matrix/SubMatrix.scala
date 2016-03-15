@@ -18,7 +18,7 @@ class SubMatrix() extends Serializable with Logging{
     sparse = false
     denseBlock = denseMatrix
   }
-  
+
   def this(spMatrix: SparseMatrix) = {
     this()
     sparseBlock = spMatrix
@@ -52,7 +52,7 @@ class SubMatrix() extends Serializable with Logging{
   def add(b: Double): SubMatrix = {
     if(this.isSparse){
       val spValues = this.sparseBlock.values.map(sv =>
-        Vectors.sparse(sv.size, sv.indices, sv.values.map(t => t + b)).asInstanceOf[SparseVector])
+        Vectors.sparse(sv.size, sv.indices.get, sv.values.get.map(t => t + b)).asInstanceOf[SparseVector])
       new SubMatrix(spMatrix = new SparseMatrix(this.rows, this.cols, spValues))
     }else new SubMatrix(denseMatrix = (this.denseBlock + b).asInstanceOf[BDM[Double]])
   }
@@ -71,7 +71,7 @@ class SubMatrix() extends Serializable with Logging{
   def subtract(b: Double): SubMatrix = {
     if(this.isSparse){
       val spValues = this.sparseBlock.values.map(sv =>
-        Vectors.sparse(sv.size, sv.indices, sv.values.map(t => t - b)).asInstanceOf[SparseVector])
+        Vectors.sparse(sv.size, sv.indices.get, sv.values.get.map(t => t - b)).asInstanceOf[SparseVector])
       new SubMatrix(spMatrix = new SparseMatrix(this.rows, this.cols, spValues))
     }else new SubMatrix(denseMatrix = (this.denseBlock - b).asInstanceOf[BDM[Double]])
   }
@@ -79,7 +79,7 @@ class SubMatrix() extends Serializable with Logging{
   def divide(b: Double): SubMatrix = {
     if(this.isSparse){
       val spValues = this.sparseBlock.values.map(sv =>
-        Vectors.sparse(sv.size, sv.indices, sv.values.map(t => t / b)).asInstanceOf[SparseVector])
+        Vectors.sparse(sv.size, sv.indices.get, sv.values.get.map(t => t / b)).asInstanceOf[SparseVector])
       new SubMatrix(spMatrix = new SparseMatrix(this.rows, this.cols, spValues))
     }else new SubMatrix(denseMatrix = (this.denseBlock / b).asInstanceOf[BDM[Double]])
   }
@@ -121,7 +121,7 @@ class SubMatrix() extends Serializable with Logging{
   def multiply(b: Double): SubMatrix = {
     if(this.isSparse){
       val spValues = this.sparseBlock.values.map(sv =>
-        Vectors.sparse(sv.size, sv.indices, sv.values.map(t => t * b)).asInstanceOf[SparseVector])
+        Vectors.sparse(sv.size, sv.indices.get, sv.values.get.map(t => t * b)).asInstanceOf[SparseVector])
       new SubMatrix(spMatrix = new SparseMatrix(this.rows, this.cols, spValues))
     }else {
       new SubMatrix(denseMatrix = (this.denseBlock * b).asInstanceOf[BDM[Double]])
@@ -131,7 +131,7 @@ class SubMatrix() extends Serializable with Logging{
   def multiply(v: Vector): DenseVector = {
     (this.isSparse, v.isInstanceOf[SparseVector]) match {
       case (false, false) =>
-        new DenseVector(this.denseBlock * v.asInstanceOf[DenseVector].inner)
+        new DenseVector(this.denseBlock * v.asInstanceOf[DenseVector].inner.get)
       case _ =>
         throw new IllegalArgumentException(s"Not supported multiply-operator between matrices sparsity " +
           s"with ${this.isSparse} and vector: ${v.getClass}")

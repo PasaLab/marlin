@@ -23,8 +23,8 @@ object LibMatrixMult {
     while(i < n){
       val bcol = sparseMat.values(i)
       if(bcol != null && bcol.indices.size != 0){
-        val bix = bcol.indices
-        val bvals = bcol.values
+        val bix = bcol.indices.get
+        val bvals = bcol.values.get
         if(bvals.size == 1 && bvals(0) == 1.0){
           System.arraycopy(denseMat.data, bix(0) * m, c, cix, m)
         } else {
@@ -63,9 +63,9 @@ object LibMatrixMult {
           for( k <- 0 until bklen){
             val value = b(bixi + k)
             val avec = a(bk + k)
-            val alen = avec.indices.size
-            val aix = avec.indices
-            val avals = avec.values
+            val alen = avec.indices.get.size
+            val aix = avec.indices.get
+            val avals = avec.values.get
             for(j <- 0 until alen){
               c( cixj + aix(j)) += value * avals(j)
             }

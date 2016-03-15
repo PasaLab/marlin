@@ -660,9 +660,7 @@ class BlockMatrix(private[marlin] val blocks: RDD[(BlockID, SubMatrix)], private
           (blkId, new SubMatrix(denseMatrix = mat))
         }
       }
-
       new BlockMatrix(result, numRows(), numCols(), newBlksByRow, newBlksByCol)
-
     }
   }
 
@@ -729,5 +727,3 @@ class BlockMatrix(private[marlin] val blocks: RDD[(BlockID, SubMatrix)], private
   }
 
 }
-
-
