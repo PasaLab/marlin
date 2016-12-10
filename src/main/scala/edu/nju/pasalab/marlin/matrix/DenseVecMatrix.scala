@@ -1878,6 +1878,16 @@ class DenseVecMatrix(
     new DenseVecMatrix(result, 0L, B.cols)
   }
 
+
+  // baseline
+  def multiplyCoordinateBlock(other: DenseVecMatrix, splitMode: (Int, Int, Int)): BlockMatrix = {
+    require(numCols() == other.numRows(), s"dimension mismatch: ${numCols()} vs ${other.numRows()}")
+    val (m, k, n) = splitMode
+    val thisEmits = toBlockMatrixFromCoordinate(m, k)
+    val otherEmits = other.toBlockMatrixFromCoordinate(k, n)
+    thisEmits.multiply(otherEmits)
+  }
+
 }
 
 

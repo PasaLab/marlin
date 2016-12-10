@@ -2,7 +2,7 @@ package edu.nju.pasalab.marlin.rdd
 
 import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV}
 
-import org.apache.spark.SparkContext
+import org.apache.spark.{Partitioner, SparkContext}
 import org.apache.spark.rdd.RDD
 
 import edu.nju.pasalab.marlin.matrix.{DenseVector, BlockID}
@@ -108,10 +108,11 @@ object RandomRDDs {
       numCols: Long,
       blksByRow: Int,
       blksByCol: Int,
-      seed: Long = System.nanoTime()): RDD[(BlockID, BDM[Double])] = {
+      seed: Long = System.nanoTime(),
+      partitioner: Option[Partitioner] = None): RDD[(BlockID, BDM[Double])] = {
     //note: numPartitions must be divided by the numRows
     new RandomBlockRDD(
-      sc, numRows, numCols, blksByRow, blksByCol, generator, seed)
+      sc, numRows, numCols, blksByRow, blksByCol, generator, seed, partitioner)
   }
 
 

@@ -27,12 +27,15 @@ object MLlibMM {
 
 
   def main(args: Array[String]) {
-    if (args.length < 6) {
-      println("usage: MLlibMM <matrixA row length> <matrixA column length> <matrixB column length> <mode> <m> <k> <n> ")
-      println("mode 1 means BlockMatrix MM")
-      println("mode 2 means IndexedRowMatrix MM (MapMM)")
-      println("mode 3 means IndexedRowMatrix MM (RMM)")
-      println("for example: MLlibMM 10000 10000 10000 1 6 6 6 ")
+    if (args.length < 4) {
+        println("usage: MLlibMM <matrixA row length> <matrixA column length> <matrixB column length> <mode> <m> <k> <n> ")
+        println("mode 1 means BlockMatrix MM")
+        println("mode 2 means IndexedRowMatrix MM (MapMM)")
+        println("mode 3 means IndexedRowMatrix MM (RMM): " +
+          "MLlibMM <matrixA row length> <matrixA column length> <matrixB column length> <mode> <m> <k> <n>")
+        println("mode 4 means IndexedRowMatrix MM (RMM) with direct rowsPerBlock : " +
+          " MLlibMM <matrixA row length> <matrixA column length> <matrixB column length> <mode> <rowsPerBlockA> <colsPerBlockA> <colsPerBlockB>")
+        println("for example: MLlibMM 10000 10000 10000 1 6 6 6 ")
       System.exit(1)
     }
     val conf = new SparkConf()
@@ -100,7 +103,7 @@ object MLlibMM {
         println(s"MLlib RMM used time ${(System.currentTimeMillis() - t0)} millis " +
           s";${Calendar.getInstance().getTime}")
       case 2 =>
-        val rowsA = sc.parallelize(0L until rowA, 500).map(row =>
+        val rowsA = sc.parallelize(0L until rowA, 640).map(row =>
           IndexedRow(row, Vectors.dense(Vector.rand[Double](colA).toArray)))
         val rowsB = sc.parallelize(0L until rowB).map(row =>
           IndexedRow(row, Vectors.dense(Vector.rand[Double](colB).toArray)))
@@ -115,11 +118,12 @@ object MLlibMM {
         val m = args(4).toInt
         val k = args(5).toInt
         val n = args(6).toInt
+        val parallelism = 320
         println(s"MLlib RMM fom IndexedRowMatrix matrixA: $rowA by $colA ; matrixB: $rowB by $colB, " +
           s"m, k, n: $m, $k, $n; ${Calendar.getInstance().getTime}")
-        val rowsA = sc.parallelize(0L until rowA).map(row =>
+        val rowsA = sc.parallelize(0L until rowA, parallelism).map(row =>
           IndexedRow(row, Vectors.dense(Vector.rand[Double](colA).toArray)))
-        val rowsB = sc.parallelize(0L until rowB).map(row =>
+        val rowsB = sc.parallelize(0L until rowB, parallelism).map(row =>
           IndexedRow(row, Vectors.dense(Vector.rand[Double](colB).toArray)))
         val indMatA = new IndexedRowMatrix(rowsA, rowA, colA)
         val indMatB = new IndexedRowMatrix(rowsB, rowB, colB)
@@ -135,6 +139,28 @@ object MLlibMM {
         MTUtils.evaluate(result.blocks)
         println(s"MLlib RMM fom IndexedRowMatrix used time ${(System.currentTimeMillis() - t0)} millis " +
           s";${Calendar.getInstance().getTime}")
+      case 4 =>
+        val rowsPerBlockA = args(4).toInt
+        val colsPerBlockA, rowsPerBlockB = args(5).toInt
+        val colsPerBlockB = args(6).toInt
+        val parallelism = 320
+        println(s"MLlib RMM fom IndexedRowMatrix matrixA: $rowA by $colA ; matrixB: $rowB by $colB, " +
+          s"rowsPerBlockA, colsPerBlockA, colsPerBlockB: $rowsPerBlockA, $colsPerBlockA, $colsPerBlockB;" +
+          s" ${Calendar.getInstance().getTime}")
+        val rowsA = sc.parallelize(0L until rowA, parallelism).map(row =>
+          IndexedRow(row, Vectors.dense(Vector.rand[Double](colA).toArray)))
+        val rowsB = sc.parallelize(0L until rowB, parallelism).map(row =>
+          IndexedRow(row, Vectors.dense(Vector.rand[Double](colB).toArray)))
+        val indMatA = new IndexedRowMatrix(rowsA, rowA, colA)
+        val indMatB = new IndexedRowMatrix(rowsB, rowB, colB)
+        val t0 = System.currentTimeMillis()
+        val matA = indMatA.toBlockMatrix(rowsPerBlockA, colsPerBlockA)
+        val matB = indMatB.toBlockMatrix(rowsPerBlockB, colsPerBlockB)
+        val result = matA.multiply(matB)
+        MTUtils.evaluate(result.blocks)
+        println(s"MLlib RMM fom IndexedRowMatrix with direct rowsPerBlock used time ${(System.currentTimeMillis() - t0)} millis " +
+          s";${Calendar.getInstance().getTime}")
+
     }
     println("=========================================")
     sc.stop()

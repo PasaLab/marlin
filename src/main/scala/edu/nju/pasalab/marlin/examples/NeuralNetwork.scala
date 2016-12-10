@@ -179,7 +179,7 @@ object NeuralNetwork extends Logging{
         val tmp = (inputT * d).asInstanceOf[BDM[Double]]
         tmp * (learningRate / batchSize)
       }, preservesPartitioning = true
-    ).treeReduce(_ + _)
+    ).reduce(_ + _)
   }
 
 

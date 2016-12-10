@@ -7,7 +7,7 @@ import scala.util.Random
 
 import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV, SparseVector => BSV}
 import org.apache.spark.rdd.RDD
-import org.apache.spark.{Partition, SparkContext, TaskContext}
+import org.apache.spark.{Partitioner, Partition, SparkContext, TaskContext}
 
 import edu.nju.pasalab.marlin.matrix.{BlockID, DenseVector}
 import edu.nju.pasalab.marlin.utils.RandomDataGenerator
@@ -180,10 +180,13 @@ private [marlin] class RandomBlockRDD(@transient sc: SparkContext,
     blksByRow: Int,
     blksByCol: Int,
     @transient rng: RandomDataGenerator[Double],
-    @transient seed: Long = System.nanoTime()) extends RDD[(BlockID, BDM[Double])](sc, Nil){
+    @transient seed: Long = System.nanoTime(),
+    part: Option[Partitioner] = None) extends RDD[(BlockID, BDM[Double])](sc, Nil){
 
   require(blksByRow > 0 && blksByCol > 0, "Positive number of partitions required.")
   require(nRows > 0 && nColumns > 0, "Positive number of partitions required.")
+
+  override val partitioner = if (part.isDefined) Some(part.get) else None
 
   override def compute(splitIn: Partition, context: TaskContext): Iterator[(BlockID, BDM[Double])] = {
     val split = splitIn.asInstanceOf[RandomRDDPartition[Double]]

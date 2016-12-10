@@ -9,7 +9,7 @@ import scala.util.hashing.MurmurHash3
 import scala.{specialized => spec}
 
 import breeze.linalg.{DenseMatrix => BDM, DenseVector => BDV, min, max}
-import org.apache.spark.SparkContext
+import org.apache.spark.{Partitioner, SparkContext}
 import org.apache.spark.SparkContext._
 
 import edu.nju.pasalab.marlin.matrix._
@@ -39,7 +39,8 @@ object MTUtils {
       nColumns: Long,
       numByRow: Int,
       numByCol: Int,
-      distribution: RandomDataGenerator[Double] = new UniformGenerator(0.0, 1.0)): BlockMatrix = {
+      distribution: RandomDataGenerator[Double] = new UniformGenerator(0.0, 1.0),
+      partitioner: Option[Partitioner] = None): BlockMatrix = {
 
     val mRows = nRows.toInt
     val mColumns = nColumns
@@ -48,7 +49,7 @@ object MTUtils {
     val blksByRow = math.ceil(mRows.toDouble / mBlockRowSize).toInt
     val blksByCol = math.ceil(mColumns.toDouble / mBlockColSize).toInt
 
-    val blocks = RandomRDDs.randomBlockRDD(sc, distribution, nRows, nColumns, blksByRow, blksByCol)
+    val blocks = RandomRDDs.randomBlockRDD(sc, distribution, nRows, nColumns, blksByRow, blksByCol, partitioner = partitioner)
     new BlockMatrix(blocks, nRows, nColumns, blksByRow, blksByCol)
   }
 
