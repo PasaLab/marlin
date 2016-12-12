@@ -99,11 +99,12 @@ object MLlibMM {
         matB.blocks.count()
         val t0 = System.currentTimeMillis()
         val result = matA.multiply(matB)
-        println(result.blocks.count())
+        MTUtils.evaluate(result.blocks)
         println(s"MLlib RMM used time ${(System.currentTimeMillis() - t0)} millis " +
           s";${Calendar.getInstance().getTime}")
       case 2 =>
-        val rowsA = sc.parallelize(0L until rowA, 640).map(row =>
+        val parallelism = args(4).toInt
+        val rowsA = sc.parallelize(0L until rowA, parallelism).map(row =>
           IndexedRow(row, Vectors.dense(Vector.rand[Double](colA).toArray)))
         val rowsB = sc.parallelize(0L until rowB).map(row =>
           IndexedRow(row, Vectors.dense(Vector.rand[Double](colB).toArray)))
@@ -111,7 +112,7 @@ object MLlibMM {
         val matB = new IndexedRowMatrix(rowsB, rowB, colB)
         val t0 = System.currentTimeMillis()
         val result = matA.multiply(toLocal(matB))
-        result.rows.count()
+        MTUtils.evaluate(result.rows)
         println(s"MLlib MapMM used time ${(System.currentTimeMillis() - t0)} millis " +
           s";${Calendar.getInstance().getTime}")
       case 3 =>

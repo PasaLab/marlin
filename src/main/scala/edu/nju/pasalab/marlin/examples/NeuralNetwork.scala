@@ -11,7 +11,7 @@ import edu.nju.pasalab.marlin.rdd.MatrixMultPartitioner
 import edu.nju.pasalab.marlin.utils.MTUtils
 import org.apache.hadoop.mapreduce.lib.partition.HashPartitioner
 import org.apache.spark.rdd.RDD
-import org.apache.spark.{Partitioner, Logging, SparkConf, SparkContext}
+import org.apache.spark.{Partitioner, SparkConf, SparkContext}
 
 import scala.collection.mutable
 import scala.collection.mutable.HashSet
@@ -230,6 +230,7 @@ object NeuralNetwork extends Logging{
         , preservesPartitioning = true).cache()
       val outputLayerOut = outputLayerInput.mapValues(_.map(x => sigmoid(x))).cache()
 
+      //outputLayerOut.foreach(x => Unit)  // make the action
 
       /** Back Propagate the errors **/
       val selectedLabels = labels.filter{case(blockId, _) => set.contains(blockId.row)}
