@@ -394,6 +394,16 @@ class CleanerTester(
       toBeCheckpointIds.synchronized { toBeCheckpointIds -= rddId }
       logInfo("checkpoint  " + rddId + " cleaned")
     }
+
+    def joinBroadcastCleaned(broadcastId: Long): Unit = {
+      toBeCleanedBroadcstIds -= broadcastId
+      logInfo("Join broadcast" + broadcastId + " clenaed")
+    }
+
+    def executorBroadcastCleaned(broadcastId: Long): Unit = {
+      toBeCleanedBroadcstIds -= broadcastId
+      logInfo("Executor_Broadcast" + broadcastId + " cleaned")
+    }
   }
 
   val MAX_VALIDATION_ATTEMPTS = 10
