@@ -7,9 +7,9 @@ name := "marlin"
 version := "0.3"
 
 libraryDependencies  ++= Seq(
-            // for hadoop 2.4
-            //"org.apache.hadoop" % "hadoop-client" % "2.4.0" % "provided",
-            // for spark 1.1.x
+            // for hadoop 2.6
+            //"org.apache.hadoop" % "hadoop-client" % "2.6.0" % "provided",
+            // for spark 2.x
             //"org.scalanlp" % "breeze_2.10" % "0.9",
             //"org.scalanlp" % "breeze-natives_2.10" % "0.9",
             //"org.apache.spark" %% "spark-core" % "1.1.0" % "provided",
@@ -36,7 +36,7 @@ resolvers += "netlib Repository" at "http://repo1.maven.org/maven2/"
 
 resolvers += "Sonatype Releases" at "https://oss.sonatype.org/content/repositories/releases/"
 
-scalaVersion := "2.10.4"
+scalaVersion := "2.11.4"
 
 mergeStrategy in assembly <<= (mergeStrategy in assembly) {
   (old) => {
