@@ -7,7 +7,7 @@ A distributed matrix operations library build on top of [Spark](http://spark.apa
 This branch(spark-marlin) built on a custom version Spark to get better performance for matrix operations, however this branch has not been published out. If you use the official version Spark, please refer to `master` branch.
 
 ##Prerequisites
-As Marlin is built on top of Spark, you need to get the Spark installed first.  If you are not clear how to setup Spark, please refer to the guidelines [here](http://spark.apache.org/docs/latest/). Currently, this branch is developed on the APIs of Spark 2.0.x version. The optimized Spark Source code is [here]().
+As Marlin is built on top of Spark, you need to get the Spark installed first.  If you are not clear how to setup Spark, please refer to the guidelines [here](http://spark.apache.org/docs/latest/). Currently, this branch is developed on the APIs of Spark 2.0.x version. The optimized Spark Source code is in directory 'Spark-2.0.2-src' in this branch.
 
 ##Compile Marlin
 We have offered a default `build.sbt` file, make sure you have installed [mvn] and you can just type `mvn package`	to get a package. 
