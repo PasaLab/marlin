@@ -66,6 +66,12 @@ class BlockManagerSlaveEndpoint(
         blockManager.removeBroadcast(broadcastId, tellMaster = true)
       }
 
+    case RemoveJoinBroadcast(joinBroadcastId, tellMaster) =>
+      doAsync[Int]("removing broadcast " + joinBroadcastId, context) {
+        SparkEnv.get.broadcastManager.unCacheJoinBroadCast(joinBroadcastId)
+        blockManager.removeJoinBroadcast(joinBroadcastId, tellMaster)
+      }
+
     case GetBlockStatus(blockId, _) =>
       context.reply(blockManager.getStatus(blockId))
 

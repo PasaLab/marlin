@@ -47,6 +47,9 @@ private[spark] object BlockManagerMessages {
    */
   case object TriggerThreadDump extends ToBlockManagerSlave
 
+  case class RemoveJoinBroadcast(joinBroadcastId: Long, removeFromDriver: Boolean = true)
+    extends ToBlockManagerSlave
+
   //////////////////////////////////////////////////////////////////////////////////
   // Messages from slaves to the master.
   //////////////////////////////////////////////////////////////////////////////////

@@ -98,6 +98,9 @@ class BlockManagerMasterEndpoint(
     case RemoveBroadcast(broadcastId, removeFromDriver) =>
       context.reply(removeBroadcast(broadcastId, removeFromDriver))
 
+    case RemoveJoinBroadcast(joinBroadcastId, removeFromDriver) =>
+      context.reply(removeJoinBroadcast(joinBroadcastId, removeFromDriver))
+
     case RemoveBlock(blockId) =>
       removeBlockFromWorkers(blockId)
       context.reply(true)
@@ -172,6 +175,20 @@ class BlockManagerMasterEndpoint(
     Future.sequence(
       requiredBlockManagers.map { bm =>
         bm.slaveEndpoint.ask[Int](removeMsg)
+      }.toSeq
+    )
+  }
+
+  private def removeJoinBroadcast(id: Long, removeFromDriver: Boolean): Future[Seq[Int]] = {
+    // TODO: Consolidate usages of <driver>
+    // import context.dispatcher
+    val removeMsg = RemoveJoinBroadcast(id, removeFromDriver)
+    val requiredBlockManagers = blockManagerInfo.values.filter { info =>
+      removeFromDriver || info.blockManagerId.executorId != "<driver>"
+    }
+    Future.sequence(
+      requiredBlockManagers.map { bm =>
+        bm.slaveEndpoint.ask(removeMsg).mapTo[Int]
       }.toSeq
     )
   }

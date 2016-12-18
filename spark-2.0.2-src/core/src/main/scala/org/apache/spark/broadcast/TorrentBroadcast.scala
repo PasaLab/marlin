@@ -99,10 +99,11 @@ private[spark] class TorrentBroadcast[T: ClassTag](obj: T, id: Long)
     import StorageLevel._
     // Store a copy of the broadcast variable in the driver so that tasks run on the driver
     // do not create a duplicate copy of the broadcast variable's value.
+    SparkEnv.get.broadcastManager.cacheBroadcast(broadcastId, value)
     val blockManager = SparkEnv.get.blockManager
-    if (!blockManager.putSingle(broadcastId, value, MEMORY_AND_DISK, tellMaster = false)) {
-      throw new SparkException(s"Failed to store $broadcastId in BlockManager")
-    }
+    // if (!blockManager.putSingle(broadcastId, value, MEMORY_AND_DISK, tellMaster = false)) {
+    //   throw new SparkException(s"Failed to store $broadcastId in BlockManager")
+    // }
     val blocks =
       TorrentBroadcast.blockifyObject(value, blockSize, SparkEnv.get.serializer, compressionCodec)
     blocks.zipWithIndex.foreach { case (block, i) =>

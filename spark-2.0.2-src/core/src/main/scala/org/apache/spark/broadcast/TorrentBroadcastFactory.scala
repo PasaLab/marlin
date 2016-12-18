@@ -19,6 +19,7 @@ package org.apache.spark.broadcast
 
 import scala.reflect.ClassTag
 
+import org.apache.spark.rdd.RDD
 import org.apache.spark.{SecurityManager, SparkConf}
 
 /**
@@ -34,6 +35,12 @@ private[spark] class TorrentBroadcastFactory extends BroadcastFactory {
     new TorrentBroadcast[T](value_, id)
   }
 
+  def newJoinBroadcast[K: ClassTag, D: ClassTag](rdd: RDD[(K, D)], id: Long): JoinBroadcast[K, D] =
+    new JoinBroadcast[K, D](rdd, id)
+
+  def newExecutorBroadcast[D: ClassTag](rdd: RDD[D], id: Long): ExecutorBroadcast[D] =
+    new ExecutorBroadcast[D](rdd, id)
+
   override def stop() { }
 
   /**
@@ -43,5 +50,9 @@ private[spark] class TorrentBroadcastFactory extends BroadcastFactory {
    */
   override def unbroadcast(id: Long, removeFromDriver: Boolean, blocking: Boolean) {
     TorrentBroadcast.unpersist(id, removeFromDriver, blocking)
+  }
+
+  def joinUnbroadcast(id: Long, removeFromDriver: Boolean, blocking: Boolean): Unit = {
+    JoinBroadcast.unpersist(id, removeFromDriver, blocking)
   }
 }

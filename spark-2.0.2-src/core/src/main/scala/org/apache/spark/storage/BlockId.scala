@@ -39,6 +39,7 @@ sealed abstract class BlockId {
   def isRDD: Boolean = isInstanceOf[RDDBlockId]
   def isShuffle: Boolean = isInstanceOf[ShuffleBlockId]
   def isBroadcast: Boolean = isInstanceOf[BroadcastBlockId]
+  def isJoinBroadcast: Boolean = isInstanceOf[JoinBroadcastBlockId]
 
   override def toString: String = name
   override def hashCode: Int = name.hashCode
@@ -90,6 +91,18 @@ private[spark] case class TempLocalBlockId(id: UUID) extends BlockId {
   override def name: String = "temp_local_" + id
 }
 
+// for JoinBroadcast
+@DeveloperApi
+case class JoinBroadcastBlockId(broadcastId: Long, field: String = "") extends BlockId {
+  def name: String = "join_broadcast_" + broadcastId + (if (field == "") "" else "_" + field)
+}
+
+// for executorBroadcast
+@DeveloperApi
+case class ExecutorBroadcastBlockId(broadcastId: Long, field: String = "") extends BlockId {
+  def name: String = "executor_broadcast_" + broadcastId + (if (field == "") "" else "_" + field)
+}
+
 /** Id associated with temporary shuffle data managed as blocks. Not serializable. */
 private[spark] case class TempShuffleBlockId(id: UUID) extends BlockId {
   override def name: String = "temp_shuffle_" + id
@@ -107,6 +120,8 @@ object BlockId {
   val SHUFFLE_DATA = "shuffle_([0-9]+)_([0-9]+)_([0-9]+).data".r
   val SHUFFLE_INDEX = "shuffle_([0-9]+)_([0-9]+)_([0-9]+).index".r
   val BROADCAST = "broadcast_([0-9]+)([_A-Za-z0-9]*)".r
+  val JOINBROADCAST = "join_broadcast_([0-9]+)([_A-Za-z0-9.,\\@\\(\\)]*)".r
+  val EXECUTORBROADCAST = "executor_broadcast_([0-9]+)([_A-Za-z0-9.\\@]*)".r
   val TASKRESULT = "taskresult_([0-9]+)".r
   val STREAM = "input-([0-9]+)-([0-9]+)".r
   val TEST = "test_(.*)".r
@@ -123,6 +138,10 @@ object BlockId {
       ShuffleIndexBlockId(shuffleId.toInt, mapId.toInt, reduceId.toInt)
     case BROADCAST(broadcastId, field) =>
       BroadcastBlockId(broadcastId.toLong, field.stripPrefix("_"))
+    case JOINBROADCAST(broadcastId, field) =>
+      JoinBroadcastBlockId(broadcastId.toLong, field.stripPrefix("_"))
+    case EXECUTORBROADCAST(broadcastId, field) =>
+      ExecutorBroadcastBlockId(broadcastId.toLong, field.stripPrefix("_"))
     case TASKRESULT(taskId) =>
       TaskResultBlockId(taskId.toLong)
     case STREAM(streamId, uniqueId) =>
