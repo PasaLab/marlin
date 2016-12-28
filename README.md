@@ -1,12 +1,12 @@
 Marlin Analysis Branch
 ============
-A distributed matrix operations library build on top of [Spark 2.0.2](http://spark.apache.org/). 
+A distributed matrix operations library build on top of [Spark 2.0.2](http://spark.apache.org/docs/2.0.2/). 
 
 ##Branches Notice
 This branch(spark-marlin) built on a **custom version Spark**(version 2.0.2) to get better performance for matrix operations.
 
 ##Build Custom Spark
-Currently, this branch is developed on the APIs of Spark 2.0.2 version. The optimized Spark Source code is in the directory 'Spark-2.0.2-src' in this branch. You can download the source code and to build it according to the guidelines [here](http://spark.apache.org/docs/latest/building-spark.html#buildmvn).
+Currently, this branch is developed on the APIs of Spark 2.0.2 version. The optimized Spark Source code is in the directory 'Spark-2.0.2-src' in this branch. You can download the source code and to build it according to the guidelines [here](http://spark.apache.org/docs/2.0.2/building-spark.html#buildmvn).
 
 **Note:** To use the native linear algebra library e.g BLAS to accelerate the computing, compile Spark source with mvn option `-Pnetlib`.
 
